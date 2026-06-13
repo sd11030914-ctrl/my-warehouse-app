@@ -5,15 +5,16 @@ from google.oauth2.service_account import Credentials
 import json
 
 st.set_page_config(page_title="雲端倉庫管理系統", page_icon="📦", layout="wide")
-st.title("📦 雲端倉庫管理系統 (終極直覺版)")
+st.title("📦 雲端倉庫管理系統 (終極成功版)")
 
-# 你的試算表唯一 ID
 SPREADSHEET_ID = "1QovEQSMk_KLmN9otXIGE2JJRY0J0HAPlGSQRfrcOABQ"
 
-# 💡 移除 st.cache_resource 快取，確保每一次網頁轉圈圈都是去 Google Sheets 抓最新狀態
 def get_sheets_client():
     info = json.loads(st.secrets["google_json"])
-    scopes = ["https://www.googleapis.com/auth/spreadsheets"]
+    scopes = [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive"
+    ]
     creds = Credentials.from_service_account_info(info, scopes=scopes)
     return gspread.authorize(creds)
 
@@ -22,15 +23,38 @@ def load_data():
         gc = get_sheets_client()
         sh = gc.open_by_key(SPREADSHEET_ID)
         worksheet = sh.sheet1
-        # 💡 強制清除 gspread 內部的快取，逼它去雲端抓
-        data = worksheet.get_all_records()
-        if not data:
+        
+        # 💡 終極修正：不用 get_all_records，改用最暴力的 get_all_values() 抓取所有格子
+        all_values = worksheet.get_all_values()
+        
+        # 如果試算表完全沒字，給它預設欄位
+        if not all_values or len(all_values) < 1:
             return pd.DataFrame(columns=["物品名稱", "庫存數量", "儲位"])
-        df = pd.DataFrame(data)
-        df.columns = df.columns.str.strip()
-        df["庫存數量"] = pd.to_numeric(df["庫存數量"], errors='coerce').fillna(0).astype(int)
-        return df
-    except:
+        
+        # 第一列當作欄位名稱
+        headers = [str(h).strip() for h in all_values[0]]
+        
+        # 如果只有標題沒有資料
+        if len(all_values) == 1:
+            return pd.DataFrame(columns=["物品名稱", "庫存數量", "儲位"])
+            
+        # 建立資料表
+        df = pd.DataFrame(all_values[1:], columns=headers)
+        
+        # 確保我們需要的欄位都在，並把數量轉成數字
+        if "物品名稱" in df.columns and "庫存數量" in df.columns and "儲位" in df.columns:
+            df = df[["物品名稱", "庫存數量", "儲位"]]
+            df["庫存數量"] = pd.to_numeric(df["庫存數量"], errors='coerce').fillna(0).astype(int)
+            return df
+        else:
+            # 如果欄位名稱不對，強制幫它重命名
+            df.columns = ["物品名稱", "庫存數量", "儲位"] + list(df.columns[3:])
+            df = df[["物品名稱", "庫存數量", "儲位"]]
+            df["庫存數量"] = pd.to_numeric(df["庫存數量"], errors='coerce').fillna(0).astype(int)
+            return df
+    except Exception as e:
+        # 如果真的出錯，把錯誤顯示在網頁最下面給我們看
+        st.write(f"系統診斷訊息: {e}")
         return pd.DataFrame(columns=["物品名稱", "庫存數量", "儲位"])
 
 def update_cloud_data(df):
@@ -39,16 +63,18 @@ def update_cloud_data(df):
         sh = gc.open_by_key(SPREADSHEET_ID)
         worksheet = sh.sheet1
         worksheet.clear()
+        
         clean_df = df.copy()
         clean_df["庫存數量"] = clean_df["庫存數量"].astype(int)
-        headers = clean_df.columns.values.tolist()
-        rows = clean_df.values.tolist()
+        
+        headers = ["物品名稱", "庫存數量", "儲位"]
+        rows = clean_df[["物品名稱", "庫存數量", "儲位"]].values.tolist()
+        
         worksheet.update(range_name="A1", values=[headers] + rows)
         st.toast("雲端資料同步成功！", icon="☁️")
     except Exception as e:
         st.error(f"同步失敗: {e}")
 
-# 每次重新整理網頁都會徹底重讀
 df_inventory = load_data()
 
 st.sidebar.header("功能選單")
@@ -59,7 +85,7 @@ if action == "📋 當前庫存盤點":
     if st.button("🔄 強制刷新最新資料"):
         st.rerun()
     if df_inventory.empty:
-        st.info("目前倉庫內沒有任何貨物，或 Google 試算表尚未建立標題。")
+        st.info("目前倉庫內沒有任何貨物。")
     else:
         st.dataframe(df_inventory, width='stretch')
         total_items = df_inventory["庫存數量"].sum()
