@@ -4,14 +4,10 @@ import gspread
 from google.oauth2.service_account import Credentials
 import json
 
-# 設定網頁標題與外觀
 st.set_page_config(page_title="雲端倉庫管理系統", page_icon="📦", layout="wide")
-
-# 主標題
 st.title("📦 雲端倉庫管理系統")
 st.markdown("---")
 
-# 你的試算表唯一 ID
 SPREADSHEET_ID = "1QovEQSMk_KLmN9otXIGE2JJRY0J0HAPlGSQRfrcOABQ"
 
 def get_sheets_client():
@@ -73,34 +69,68 @@ def update_cloud_data(df):
 
 df_inventory = load_data()
 
-# 💡 人性化亮點：移除隱藏的側邊欄，改用置頂「大標籤頁」，手機操作流暢度加倍！
 tab1, tab2, tab3 = st.tabs(["📋 當前庫存盤點", "📥 物品快捷進貨", "📦 物品快捷出庫"])
 
-# === 📋 標籤頁 1：當前庫存盤點 ===
+# === 📋 標籤頁 1：當前庫存盤點 (加入智慧搜尋功能) ===
 with tab1:
     st.subheader("📋 倉庫即時庫存表")
-    if st.button("🔄 刷新最新數據", key="refresh_btn"):
-        st.rerun()
+    
+    # 💡 人性化亮點：置頂一排快捷搜尋工具欄
+    search_col1, search_col2, search_col3 = st.columns([2, 1, 1])
+    
+    with search_col1:
+        # 關鍵字輸入框
+        search_query = st.text_input("🔍 快捷搜尋物品名稱", placeholder="輸入名稱關鍵字（例如：洗髮精）")
         
-    if df_inventory.empty:
-        st.info("目前倉庫內沒有任何貨物。")
+    with search_col2:
+        # 區域過濾下拉選單
+        filter_zone = st.selectbox("🗺️ 按區域過濾", ["全部區域", "A 區", "B 區", "C 區", "D 區"])
+        
+    with search_col3:
+        # 刷新按鈕
+        st.write("<div style='height: 28px;'></div>", unsafe_allow_html=True) # 調整對齊的空白
+        if st.button("🔄 刷新數據", use_container_width=True):
+            st.rerun()
+            
+    # 開始進行資料過濾過篩
+    df_filtered = df_inventory.copy()
+    
+    # 1. 處理關鍵字搜尋
+    if search_query.strip():
+        df_filtered = df_filtered[df_filtered["物品名稱"].str.contains(search_query, case=False, na=False)]
+        
+    # 2. 處理區域過濾
+    if filter_zone != "全部區域":
+        df_filtered = df_filtered[df_filtered["儲位"].str.contains(filter_zone, na=False)]
+
+    # 顯示過濾後的結果
+    if df_filtered.empty:
+        st.info("💡 沒有找到符合搜尋條件的貨物。")
     else:
-        st.dataframe(df_inventory, width='stretch')
-        total_items = df_inventory["庫存數量"].sum()
-        st.metric(label="倉庫貨物總數量", value=f"{total_items} 件")
+        st.dataframe(df_filtered, width='stretch')
+        
+        # 統計卡片改為顯示「搜尋出來的項目總數」
+        total_items = df_filtered["庫存數量"].sum()
+        unique_items = len(df_filtered)
+        
+        stat_col1, stat_col2 = st.columns(2)
+        with stat_col1:
+            st.metric(label="目前顯示的貨物總數量", value=f"{total_items} 件")
+        with stat_col2:
+            st.metric(label="目前顯示的品項種類", value=f"{unique_items} 種")
 
 # === 📥 標籤頁 2：物品快捷進貨 ===
 with tab2:
     st.subheader("📥 貨物入庫登記")
     with st.form("in_form", clear_on_submit=True):
-        item_name = st.text_input("物品名稱", placeholder="請輸入或掃描物品名稱")
+        item_name = st.text_input("物品名稱", placeholder="輸入物品名稱")
         quantity = st.number_input("進貨數量", min_value=1, value=1, step=1)
         st.write("---")
-        st.write("📍 指定儲位資訊")
+        st.write("📍 指定儲位")
         col1, col2, col3 = st.columns(3)
-        with col1: zone = st.selectbox("儲位區域", ["A 區", "B 區", "C 區", "D 區"])
-        with col2: shelf = st.text_input("貨架編號", value="01", max_chars=2)
-        with col3: level = st.selectbox("貨架層級", ["1層", "2層", "3層", "4層"])
+        with col1: zone = st.selectbox("區域", ["A 區", "B 區", "C 區", "D 區"])
+        with col2: shelf = st.text_input("貨架", value="01", max_chars=2)
+        with col3: level = st.selectbox("層級", ["1層", "2層", "3層", "4層"])
         submit_btn = st.form_submit_button("🔥 確認快速入庫", use_container_width=True)
         
         if submit_btn:
@@ -115,27 +145,26 @@ with tab2:
                     new_row = pd.DataFrame([{"物品名稱": item_name, "庫存數量": quantity, "儲位": location}])
                     df_inventory = pd.concat([df_inventory, new_row], ignore_index=True)
                 update_cloud_data(df_inventory)
-                st.success(f"✅ 成功入庫：{item_name} 共 {quantity} 件！")
+                st.success(f"✅ 成功入庫")
                 st.rerun()
 
 # === 📦 標籤頁 3：物品快捷出庫 ===
 with tab3:
     st.subheader("📦 貨物出庫登記")
     if df_inventory.empty:
-        st.warning("倉庫目前沒有任何貨物可以出庫。")
+        st.warning("倉庫目前無貨可出。")
     else:
-        item_options = df_inventory.apply(lambda r: f"{r['物品名稱']} (儲位: {r['儲位']})", axis=1).tolist()
-        selected_option = st.selectbox("請選擇要出庫的項目：", item_options)
+        item_options = df_inventory.apply(lambda r: f"{r['物品名稱']} ({r['儲位']})", axis=1).tolist()
+        selected_option = st.selectbox("選擇出庫物品：", item_options)
         selected_idx = item_options.index(selected_option)
         current_item = df_inventory.iloc[selected_idx]
         max_qty = int(current_item["庫存數量"])
+        remove_qty = st.number_input(f"出庫數量 (庫存剩餘 {max_qty})：", min_value=1, max_value=max_qty, value=1, step=1)
         
-        remove_qty = st.number_input(f"請輸入出庫數量 (該儲位目前剩餘 {max_qty} 件)：", min_value=1, max_value=max_qty, value=1, step=1)
-        
-        if st.form_submit_button("🔥 確認快速出庫", use_container_width=True) if 'form' in locals() else st.button("🔥 確認快速出庫", use_container_width=True):
+        if st.button("🔥 確認快速出庫", use_container_width=True):
             df_inventory.loc[selected_idx, "庫存數量"] -= remove_qty
             if df_inventory.loc[selected_idx, "庫存數量"] == 0:
                 df_inventory = df_inventory.drop(selected_idx).reset_index(drop=True)
             update_cloud_data(df_inventory)
-            st.success(f"✅ 成功出庫：{current_item['物品名稱']} 已扣除 {remove_qty} 件！")
+            st.success(f"✅ 已完成出庫")
             st.rerun()
