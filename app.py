@@ -1,62 +1,111 @@
 import streamlit as st
+from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 
 # 設定網頁標題
 st.set_page_config(page_title="雲端倉庫管理系統", page_icon="📦", layout="wide")
-st.title("📦 雲端倉庫管理系統 (手機同步版)")
+st.title("📦 雲端倉庫管理系統 (直覺操作版)")
 
-# 讀取 Google 試算表的公開編輯連結
-# 這是你提供的試算表網址，我們把它轉換成 CSV 匯入格式
-sheet_url = "https://docs.google.com/spreadsheets/d/1QovEQSMk_KLmN9otXIGE2JJRY0J0HAPlGSQRfrcOABQ/export?format=csv"
+# 建立與 Google Sheets 的安全連接
+conn = st.connection("gsheets", type=GSheetsConnection)
 
-# 讀取資料函數
-def load_data():
-    try:
-        # 強制清除快取讀取最新資料
-        df = pd.read_csv(sheet_url)
-        # 確保欄位名稱正確
-        df.columns = df.columns.str.strip()
-        return df
-    except Exception as e:
-        # 如果試算表是空的或讀取失敗，建立預設結構
-        return pd.DataFrame(columns=["物品名稱", "庫存數量", "儲位"])
+# 讀取雲端最新資料
+def get_current_data():
+    # ttl=0 代表不使用快取，每次都抓最新資料
+    df = conn.read(spreadsheet=st.secrets["connections"]["gsheets"]["spreadsheet"], ttl=0)
+    df.columns = df.columns.str.strip()
+    # 確保數量是數字型態
+    df["庫存數量"] = pd.to_numeric(df["庫存數量"], errors='coerce').fillna(0).astype(int)
+    return df
 
-# 這裡因為直接去修改網頁上的公開 CSV 比較複雜，Streamlit 提供了一個最簡單的寫入方式
-# 請注意：此版本為「即時讀取」雲端資料庫。
-df_inventory = load_data()
+# 寫入雲端資料
+def update_cloud_data(df):
+    conn.update(spreadsheet=st.secrets["connections"]["gsheets"]["spreadsheet"], data=df)
+    st.toast("雲端資料同步成功！", icon="☁️")
 
-# 側邊欄
+# 獲取目前最新庫存
+df_inventory = get_current_data()
+
+# 側邊欄功能選單
 st.sidebar.header("功能選單")
-action = st.sidebar.radio("請選擇操作項目：", ["📋 查看庫存/儲位", "📥 物品入庫"])
+action = st.sidebar.radio("請選擇操作項目：", ["📋 當前庫存盤點", "📥 物品進貨 (入庫)", "📦 物品出庫"])
 
-# 1. 查看庫存
-if action == "📋 查看庫存/儲位":
+# --- 1. 查看庫存 ---
+if action == "📋 當前庫存盤點":
     st.subheader("📋 當前倉庫庫存盤點表")
-    if st.button("🔄 重新整理獲取最新庫存"):
+    if st.button("🔄 刷新最新資料"):
+        st.clear_cache()
         st.rerun()
         
-    if df_inventory.empty or len(df_inventory) == 0:
-        st.info("目前倉庫內沒有任何貨物，或請至 Google 試算表填寫初始資料。")
+    if df_inventory.empty:
+        st.info("目前倉庫內沒有任何貨物。")
     else:
         st.dataframe(df_inventory, use_container_width=True)
-        # 確保數量是數字型態
-        df_inventory["庫存數量"] = pd.to_numeric(df_inventory["庫存數量"], errors='coerce').fillna(0)
         total_items = df_inventory["庫存數量"].sum()
-        st.metric(label="倉庫貨物總數量", value=f"{int(total_items)} 件")
-        
-    st.write("💡 *提示：因為此網頁與你的 Google 試算表連動，你也可以直接在手機的 Google Sheets App 裡修改資料，網頁會同步更新！*")
+        st.metric(label="倉庫貨物總數量", value=f"{total_items} 件")
 
-# 2. 物品入庫說明
-elif action == "📥 物品入庫":
-    st.subheader("📥 物品入庫與儲位管理")
-    st.info("👋 親愛的管理員：為了確保你的資料絕對安全且 100% 成功存檔，請直接點擊下方連結打開你的雲端 Excel 試算表。在手機上安裝『Google 試算表』App 即可隨時隨地用手機新增、修改或刪除庫存！")
+# --- 2. 物品進貨 ---
+elif action == "📥 物品進貨 (入庫)":
+    st.subheader("📥 新生物資 / 追加庫存")
     
-    # 這裡放你的試算表連結
-    st.markdown("[👉 點我打開 Google 雲端庫存試算表 (直接用手機登記入庫/修改)](https://docs.google.com/spreadsheets/d/1QovEQSMk_KLmN9otXIGE2JJRY0J0HAPlGSQRfrcOABQ/edit?usp=sharing)")
+    with st.form("in_form", clear_on_submit=True):
+        item_name = st.text_input("物品名稱", placeholder="例如：螺絲 A")
+        quantity = st.number_input("進貨數量", min_value=1, value=1, step=1)
+        
+        st.write("--- 🗺️ 指定擺放儲位 ---")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            zone = st.selectbox("區域", ["A 區", "B 區", "C 區", "D 區"])
+        with col2:
+            shelf = st.text_input("貨架編號", value="01", max_chars=2)
+        with col3:
+            level = st.selectbox("層級", ["1層", "2層", "3層", "4層"])
+            
+        submit_btn = st.form_submit_button("確認進貨入庫")
+        
+        if submit_btn:
+            if not item_name.strip():
+                st.error("❌ 請輸入物品名稱！")
+            else:
+                location = f"{zone}-{shelf}-{level}"
+                # 檢查是否已有相同物品在相同儲位
+                mask = (df_inventory["物品名稱"] == item_name) & (df_inventory["儲位"] == location)
+                
+                if mask.any():
+                    df_inventory.loc[mask, "庫存數量"] += quantity
+                else:
+                    new_row = pd.DataFrame([{"物品名稱": item_name, "庫存數量": quantity, "儲位": location}])
+                    df_inventory = pd.concat([df_inventory, new_row], ignore_index=True)
+                
+                # 寫回雲端 Google Sheets
+                update_cloud_data(df_inventory)
+                st.success(f"🎉 成功入庫！【{item_name}】{quantity} 件，已放置於 {location}")
+
+# --- 3. 物品出庫 ---
+elif action == "📦 物品出庫":
+    st.subheader("📦 物品出庫登記")
     
-    st.write("---")
-    st.write("### 📝 手機操作建議流程：")
-    st.write("1. 貨物運到倉庫時，打開手機的 **Google 試算表 App**。")
-    # 用戶可以學習如何在雲端表格中管理物品
-    st.write("2. 在最底下一行填入 `物品名稱`、`數量` 和 `儲位`（例如：A-02-1）。")
-    st.write("3. 填完後，打開你的 **Streamlit 專屬網頁**，所有人（不論是老闆還是員工）都能立刻看到最新的全倉庫盤點表！")
+    if df_inventory.empty:
+        st.warning("倉庫目前沒有貨物可以出庫。")
+    else:
+        # 建立選項清單：物品名稱 (位置)
+        item_options = df_inventory.apply(lambda r: f"{r['物品名稱']} (位置: {r['儲位']})", axis=1).tolist()
+        selected_option = st.selectbox("請選擇要出庫的物品與儲位：", item_options)
+        
+        selected_idx = item_options.index(selected_option)
+        current_item = df_inventory.iloc[selected_idx]
+        max_qty = int(current_item["庫存數量"])
+        
+        remove_qty = st.number_input(f"請輸入出庫數量 (目前該儲位剩餘 {max_qty} 件)：", min_value=1, max_value=max_qty, value=1, step=1)
+        
+        if st.button("確認扣除庫存並出庫"):
+            df_inventory.loc[selected_idx, "庫存數量"] -= remove_qty
+            
+            # 如果數量扣到 0，就從表格中移除這筆記錄
+            if df_inventory.loc[selected_idx, "庫存數量"] == 0:
+                df_inventory = df_inventory.drop(selected_idx).reset_index(drop=True)
+                st.info(f"💡 提示：{current_item['物品名稱']} 在該儲位的庫存已清空。")
+                
+            # 寫回雲端 Google Sheets
+            update_cloud_data(df_inventory)
+            st.success(f"✅ 出庫成功！順利扣除【{current_item['物品名稱']}】共 {remove_qty} 件。")
