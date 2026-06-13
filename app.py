@@ -7,9 +7,10 @@ import json
 st.set_page_config(page_title="雲端倉庫管理系統", page_icon="📦", layout="wide")
 st.title("📦 雲端倉庫管理系統 (終極直覺版)")
 
-SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1QovEQSMk_KLmN9otXIGE2JJRY0J0HAPlGSQRfrcOABQ/edit?usp=sharing"
+# 你的試算表唯一 ID
+SPREADSHEET_ID = "1QovEQSMk_KLmN9otXIGE2JJRY0J0HAPlGSQRfrcOABQ"
 
-@st.cache_resource(ttl=0)
+# 💡 移除 st.cache_resource 快取，確保每一次網頁轉圈圈都是去 Google Sheets 抓最新狀態
 def get_sheets_client():
     info = json.loads(st.secrets["google_json"])
     scopes = ["https://www.googleapis.com/auth/spreadsheets"]
@@ -19,9 +20,9 @@ def get_sheets_client():
 def load_data():
     try:
         gc = get_sheets_client()
-        sh = gc.open_by_url(SPREADSHEET_URL)
-        # 💡 魔鬼細節修復：強制抓取「第一個分頁」，不管它叫工作表1還是Sheet1
-        worksheet = sh.get_device_sheets()[0] if hasattr(sh, 'get_device_sheets') else sh.sheet1
+        sh = gc.open_by_key(SPREADSHEET_ID)
+        worksheet = sh.sheet1
+        # 💡 強制清除 gspread 內部的快取，逼它去雲端抓
         data = worksheet.get_all_records()
         if not data:
             return pd.DataFrame(columns=["物品名稱", "庫存數量", "儲位"])
@@ -35,20 +36,19 @@ def load_data():
 def update_cloud_data(df):
     try:
         gc = get_sheets_client()
-        sh = gc.open_by_url(SPREADSHEET_URL)
-        # 💡 魔鬼細節修復：強制寫回「第一個分頁」
+        sh = gc.open_by_key(SPREADSHEET_ID)
         worksheet = sh.sheet1
         worksheet.clear()
-        # 確保格式乾淨，把 DataFrame 轉成純文字與數字列表
         clean_df = df.copy()
         clean_df["庫存數量"] = clean_df["庫存數量"].astype(int)
         headers = clean_df.columns.values.tolist()
         rows = clean_df.values.tolist()
-        worksheet.update(range_name=f"A1", values=[headers] + rows)
+        worksheet.update(range_name="A1", values=[headers] + rows)
         st.toast("雲端資料同步成功！", icon="☁️")
     except Exception as e:
         st.error(f"同步失敗: {e}")
 
+# 每次重新整理網頁都會徹底重讀
 df_inventory = load_data()
 
 st.sidebar.header("功能選單")
@@ -56,11 +56,10 @@ action = st.sidebar.radio("請選擇操作項目：", ["📋 當前庫存盤點"
 
 if action == "📋 當前庫存盤點":
     st.subheader("📋 當前倉庫庫存盤點表")
-    if st.button("🔄 刷新最新資料"):
-        st.cache_resource.clear()
+    if st.button("🔄 強制刷新最新資料"):
         st.rerun()
     if df_inventory.empty:
-        st.info("目前倉庫內沒有任何貨物。")
+        st.info("目前倉庫內沒有任何貨物，或 Google 試算表尚未建立標題。")
     else:
         st.dataframe(df_inventory, width='stretch')
         total_items = df_inventory["庫存數量"].sum()
