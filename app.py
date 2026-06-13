@@ -4,17 +4,13 @@ import gspread
 from google.oauth2.service_account import Credentials
 import json
 
-# 設定網頁標題
 st.set_page_config(page_title="雲端倉庫管理系統", page_icon="📦", layout="wide")
 st.title("📦 雲端倉庫管理系統 (終極直覺版)")
 
-# 試算表設定
 SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1QovEQSMk_KLmN9otXIGE2JJRY0J0HAPlGSQRfrcOABQ/edit?usp=sharing"
 
-# 連接 Google Sheets 函數
 @st.cache_resource(ttl=0)
 def get_sheets_client():
-    # 直接讀取 Secrets 裡整包原始的 JSON
     info = json.loads(st.secrets["google_json"])
     scopes = ["https://www.googleapis.com/auth/spreadsheets"]
     creds = Credentials.from_service_account_info(info, scopes=scopes)
@@ -32,7 +28,7 @@ def load_data():
         df.columns = df.columns.str.strip()
         df["庫存數量"] = pd.to_numeric(df["庫存數量"], errors='coerce').fillna(0).astype(int)
         return df
-    except Exception as e:
+    except:
         return pd.DataFrame(columns=["物品名稱", "庫存數量", "儲位"])
 
 def update_cloud_data(df):
@@ -41,16 +37,13 @@ def update_cloud_data(df):
         sh = gc.open_by_url(SPREADSHEET_URL)
         worksheet = sh.get_worksheet(0)
         worksheet.clear()
-        # 包含表頭一起寫回
         worksheet.update([df.columns.values.tolist()] + df.values.tolist())
         st.toast("雲端資料同步成功！", icon="☁️")
     except Exception as e:
         st.error(f"同步失敗: {e}")
 
-# 讀取目前庫存
 df_inventory = load_data()
 
-# 選單
 st.sidebar.header("功能選單")
 action = st.sidebar.radio("請選擇操作項目：", ["📋 當前庫存盤點", "📥 物品進貨 (入庫)", "📦 物品出庫"])
 
@@ -92,4 +85,21 @@ elif action == "📥 物品進貨 (入庫)":
                 update_cloud_data(df_inventory)
                 st.success(f"🎉 成功入庫！")
 
-elif action == "📦
+elif action == "📦 物品出庫":
+    st.subheader("📦 物品出庫登記")
+    if df_inventory.empty:
+        st.warning("倉庫目前沒有貨物可以出庫。")
+    else:
+        item_options = df_inventory.apply(lambda r: f"{r['物品名稱']} (位置: {r['儲位']})", axis=1).tolist()
+        selected_option = st.selectbox("請選擇要出庫的物品與儲位：", item_options)
+        selected_idx = item_options.index(selected_option)
+        current_item = df_inventory.iloc[selected_idx]
+        max_qty = int(current_item["庫存數量"])
+        remove_qty = st.number_input(f"請輸入出庫數量 (剩餘 {max_qty} 件)：", min_value=1, max_value=max_qty, value=1, step=1)
+        
+        if st.button("確認扣除庫存並出庫"):
+            df_inventory.loc[selected_idx, "庫存數量"] -= remove_qty
+            if df_inventory.loc[selected_idx, "庫存數量"] == 0:
+                df_inventory = df_inventory.drop(selected_idx).reset_index(drop=True)
+            update_cloud_data(df_inventory)
+            st.success(f"✅ 出庫成功！")
