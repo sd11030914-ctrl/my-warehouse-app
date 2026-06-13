@@ -20,7 +20,8 @@ def load_data():
     try:
         gc = get_sheets_client()
         sh = gc.open_by_url(SPREADSHEET_URL)
-        worksheet = sh.get_worksheet(0)
+        # 💡 魔鬼細節修復：強制抓取「第一個分頁」，不管它叫工作表1還是Sheet1
+        worksheet = sh.get_device_sheets()[0] if hasattr(sh, 'get_device_sheets') else sh.sheet1
         data = worksheet.get_all_records()
         if not data:
             return pd.DataFrame(columns=["物品名稱", "庫存數量", "儲位"])
@@ -35,9 +36,15 @@ def update_cloud_data(df):
     try:
         gc = get_sheets_client()
         sh = gc.open_by_url(SPREADSHEET_URL)
-        worksheet = sh.get_worksheet(0)
+        # 💡 魔鬼細節修復：強制寫回「第一個分頁」
+        worksheet = sh.sheet1
         worksheet.clear()
-        worksheet.update([df.columns.values.tolist()] + df.values.tolist())
+        # 確保格式乾淨，把 DataFrame 轉成純文字與數字列表
+        clean_df = df.copy()
+        clean_df["庫存數量"] = clean_df["庫存數量"].astype(int)
+        headers = clean_df.columns.values.tolist()
+        rows = clean_df.values.tolist()
+        worksheet.update(range_name=f"A1", values=[headers] + rows)
         st.toast("雲端資料同步成功！", icon="☁️")
     except Exception as e:
         st.error(f"同步失敗: {e}")
@@ -55,7 +62,7 @@ if action == "📋 當前庫存盤點":
     if df_inventory.empty:
         st.info("目前倉庫內沒有任何貨物。")
     else:
-        st.dataframe(df_inventory, use_container_width=True)
+        st.dataframe(df_inventory, width='stretch')
         total_items = df_inventory["庫存數量"].sum()
         st.metric(label="倉庫貨物總數量", value=f"{total_items} 件")
 
@@ -84,6 +91,7 @@ elif action == "📥 物品進貨 (入庫)":
                     df_inventory = pd.concat([df_inventory, new_row], ignore_index=True)
                 update_cloud_data(df_inventory)
                 st.success(f"🎉 成功入庫！")
+                st.rerun()
 
 elif action == "📦 物品出庫":
     st.subheader("📦 物品出庫登記")
@@ -103,3 +111,4 @@ elif action == "📦 物品出庫":
                 df_inventory = df_inventory.drop(selected_idx).reset_index(drop=True)
             update_cloud_data(df_inventory)
             st.success(f"✅ 出庫成功！")
+            st.rerun()
