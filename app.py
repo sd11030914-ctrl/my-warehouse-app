@@ -59,14 +59,49 @@ if 'last_completed_item' not in st.session_state:
 if 'last_completed_count' not in st.session_state:
     st.session_state.last_completed_count = 0
 
-# 網頁UI設定
-st.set_page_config(page_title="雲端倉庫與生產計數系統", page_icon="📦", layout="wide")
-st.title("📦 雲端倉庫與生產計數系統")
+# 網頁UI設定：活潑現代風格
+st.set_page_config(page_title="雲端倉庫與生產管理系統", page_icon="📦", layout="wide")
 
-# 重新調整頁籤順序：將「即時生產計數 (計瓶器)」放置在最後一個標籤
+st.markdown("""
+<style>
+    .main {
+        background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+    }
+    h1 {
+        color: #1E3A8A;
+        font-family: 'Trebuchet MS', sans-serif;
+    }
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 10px;
+    }
+    .stTabs [data-baseweb="tab"] {
+        height: 48px;
+        background-color: #ffffff;
+        border-radius: 8px 8px 0px 0px;
+        color: #4B5563;
+        font-weight: bold;
+        padding: 8px 16px;
+    }
+    .stTabs [aria-selected="true"] {
+        background: linear-gradient(135deg, #3B82F6 0%, #2563EB 100%) !important;
+        color: #ffffff !important;
+    }
+    .stMetric {
+        background-color: #ffffff;
+        padding: 15px;
+        border-radius: 12px;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        border-left: 5px solid #3B82F6;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+st.title("⚡ 雲端倉庫與生產管理系統")
+
+# 主頁籤選單
 tab1, tab2, tab3, tab4 = st.tabs(["📋 當前總庫存", "📥 物品進貨", "📦 物品出庫", "🧪 即時生產計數 (計瓶器)"])
 
-# --- 頁籤 1: 當前總庫存與歷史紀錄 ---
+# --- 頁籤 1: 當前總庫存與分門別類的歷史日誌 ---
 with tab1:
     st.subheader("📋 當前倉庫總庫存盤點表")
     if st.button("🔄 刷新最新資料"):
@@ -75,7 +110,7 @@ with tab1:
 
     df_inventory = get_current_data()
     if df_inventory.empty:
-        st.info("目前倉庫內沒有任何貨物。")
+        st.info("💡 目前倉庫內沒有任何貨物。")
     else:
         col_search, col_filter = st.columns([2, 1])
         with col_search:
@@ -90,7 +125,7 @@ with tab1:
             filtered_df = filtered_df[filtered_df["儲位"].str.contains(zone_filter.strip(), case=False, na=False)]
 
         st.dataframe(filtered_df, use_container_width=True)
-        st.metric(label="目前篩選貨物總瓶/件數", value=f"{filtered_df['庫存數量'].sum()} 件")
+        st.metric(label="📊 目前篩選貨物總瓶/件數", value=f"{filtered_df['庫存數量'].sum()} 件")
 
     st.write("---")
     st.subheader("📜 歷史進出貨與生產時間日誌")
@@ -100,26 +135,47 @@ with tab1:
         if len(log_data) > 1:
             df_log = pd.DataFrame(log_data[1:], columns=log_data[0])
             
-            # 預設只顯示今天紀錄，並提供日期選擇與關鍵字搜尋
-            selected_date = st.date_input("📅 選擇日誌日期", value=datetime.now(TW_TZ))
-            log_search = st.text_input("🔍 關鍵字搜尋日誌 (物品名稱/類型)", placeholder="例如：進貨、出貨、洗髮精...")
+            # 日期過濾與關鍵字過濾輸入列
+            col_date, col_keyword = st.columns([1, 2])
+            with col_date:
+                selected_date = st.date_input("📅 選擇日誌日期", value=datetime.now(TW_TZ))
+            with col_keyword:
+                log_search = st.text_input("🔍 關鍵字過濾 (物品名稱)", placeholder="例如：洗髮精...")
 
             target_date_str = selected_date.strftime("%Y-%m-%d")
             
-            # 日期過濾
-            df_filtered_log = df_log[df_log["時間"].str.startswith(target_date_str, na=False)]
-            
-            # 關鍵字過濾
+            # 先進行日期與關鍵字過濾
+            df_filtered_base = df_log[df_log["時間"].str.startswith(target_date_str, na=False)]
             if log_search.strip():
-                mask_item = df_filtered_log["物品名稱"].str.contains(log_search.strip(), case=False, na=False)
-                mask_type = df_filtered_log["類型"].str.contains(log_search.strip(), case=False, na=False)
-                df_filtered_log = df_filtered_log[mask_item | mask_type]
+                df_filtered_base = df_filtered_base[df_filtered_base["物品名稱"].str.contains(log_search.strip(), case=False, na=False)]
 
-            if df_filtered_log.empty:
-                st.caption(f"🗓️ {target_date_str} 尚無符合條件的歷史異動紀錄。")
-            else:
-                st.caption(f"顯示日期：**{target_date_str}**（共 {len(df_filtered_log)} 筆紀錄）")
-                st.dataframe(df_filtered_log.iloc[::-1], use_container_width=True, height=250)
+            # 核心亮點：分類展示頁籤（進貨 / 生產 / 出貨 / 全部）
+            log_tab_in, log_tab_prod, log_tab_out, log_tab_all = st.tabs([
+                "📥 進貨紀錄", "🧪 生產紀錄", "📦 出貨紀錄", "🌐 全部異動"
+            ])
+
+            def render_log_table(data_frame, category_label):
+                if data_frame.empty:
+                    st.caption(f"🗓️ {target_date_str} 無【{category_label}】紀錄。")
+                else:
+                    st.caption(f"顯示日期：**{target_date_str}**（{category_label} 共 {len(data_frame)} 筆）")
+                    st.dataframe(data_frame.iloc[::-1], use_container_width=True, height=220)
+
+            with log_tab_in:
+                df_in = df_filtered_base[df_filtered_base["類型"] == "📥 物品進貨"]
+                render_log_table(df_in, "物品進貨")
+
+            with log_tab_prod:
+                df_prod = df_filtered_base[df_filtered_base["類型"] == "🧪 生產完工"]
+                render_log_table(df_prod, "生產完工")
+
+            with log_tab_out:
+                df_out = df_filtered_base[df_filtered_base["類型"] == "📦 物品出庫"]
+                render_log_table(df_out, "物品出貨")
+
+            with log_tab_all:
+                render_log_table(df_filtered_base, "全部異動")
+
         else:
             st.caption("尚無歷史異動紀錄。")
     except Exception as e:
@@ -131,7 +187,7 @@ with tab2:
     with st.form("inbound_form", clear_on_submit=True):
         inbound_item = st.text_input("物品/產品名稱", placeholder="例如：洗髮精 A")
         inbound_qty = st.number_input("進貨數量", min_value=1, value=1, step=1)
-        inbound_location = st.text_input("存放地點 / 儲位", placeholder="例如：A區-01架、主臥抽屜、客廳櫃子...")
+        inbound_location = st.text_input("存放地點 / 儲位", placeholder="例如：A區-01架、主臥抽屜...")
         
         submit_inbound = st.form_submit_button("確認進貨入庫", type="primary", use_container_width=True)
         
@@ -185,12 +241,12 @@ with tab3:
                 df = df.drop(selected_idx).reset_index(drop=True)
             
             save_all_data(df)
-            log_history("📦 物品出貨", current_item['物品名稱'], f"-{remove_qty}", remaining_qty, current_item['儲位'])
+            log_history("📦 物品出庫", current_item['物品名稱'], f"-{remove_qty}", remaining_qty, current_item['儲位'])
             
             st.success(f"✅ 出貨成功！順利扣除【{current_item['物品名稱']}】{remove_qty} 件，當前庫存已自動減少為 {remaining_qty} 件。")
             st.rerun()
 
-# --- 頁籤 4: 即時生產計數 (計瓶器移至最後) ---
+# --- 頁籤 4: 即時生產計數 ---
 with tab4:
     st.subheader("🧪 產品製作與計瓶器")
     
