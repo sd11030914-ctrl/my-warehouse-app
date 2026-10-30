@@ -4,12 +4,11 @@ import gspread
 import json
 from datetime import datetime
 import pytz
-import streamlit.components.v1 as components
 
 # 設定台灣時區
 TW_TZ = pytz.timezone('Asia/Taipei')
 
-# Google 試算表 ID (原工作表/倉庫)
+# 1. Google 試算表驗證與連接
 SPREADSHEET_ID = "1QovEQSMk_KLmN9otXIGE2JJRY0J0HAPlGSQRfrcOABQ"
 
 @st.cache_resource
@@ -50,34 +49,63 @@ def log_history(action_type, item_name, change_qty, total_qty, location):
     now_str = datetime.now(TW_TZ).strftime("%Y-%m-%d %H:%M:%S")
     ws_log.append_row([now_str, action_type, item_name, str(change_qty), str(total_qty), location])
 
-# 初始化 Session State
-if 'font_size' not in st.session_state:
-    st.session_state.font_size = 18
+# 初始化 session state
+if 'batch_item' not in st.session_state:
+    st.session_state.batch_item = ""
+if 'batch_count' not in st.session_state:
+    st.session_state.batch_count = 0
+if 'last_completed_item' not in st.session_state:
+    st.session_state.last_completed_item = ""
+if 'last_completed_count' not in st.session_state:
+    st.session_state.last_completed_count = 0
 
-st.set_page_config(page_title="雲端倉庫管理系統", page_icon="📦", layout="wide")
+# 網頁UI設定
+st.set_page_config(page_title="雲端倉庫與生產管理系統", page_icon="📦", layout="wide")
 
-# 透過 JavaScript 讀取與套用僅限單一裝置的 localStorage 字體設定
-font_size_script = f"""
-<script>
-    // 取得這台裝置儲存的字體大小，如果沒有設定預設為 18px
-    const localFontSize = localStorage.getItem('user_font_size') || {st.session_state.font_size};
-    const root = window.parent.document.querySelector(':root');
-    const body = window.parent.document.body;
-    
-    // 動態修改全域字體大小
-    if (body) {{
-        body.style.fontSize = localFontSize + 'px';
-    }}
-</script>
-"""
-components.html(font_size_script, height=0)
+st.markdown("""
+<style>
+    .main {
+        background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+    }
+    h1 {
+        color: #1E3A8A;
+        font-family: 'Trebuchet MS', sans-serif;
+    }
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 10px;
+    }
+    .stTabs [data-baseweb="tab"] {
+        height: 48px;
+        background-color: #ffffff;
+        border-radius: 8px 8px 0px 0px;
+        color: #4B5563;
+        font-weight: bold;
+        padding: 8px 16px;
+    }
+    .stTabs [aria-selected="true"] {
+        background: linear-gradient(135deg, #3B82F6 0%, #2563EB 100%) !important;
+        color: #ffffff !important;
+    }
+    .stMetric {
+        background-color: #ffffff;
+        padding: 15px;
+        border-radius: 12px;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        border-left: 5px solid #3B82F6;
+    }
+    div[data-testid="stDataFrame"] {
+        background-color: transparent !important;
+        border: none !important;
+    }
+</style>
+""", unsafe_allow_html=True)
 
-st.title("📦 雲端倉庫管理系統")
+st.title("⚡ 雲端倉庫與生產管理系統")
 
-# 主功能頁籤（包含新增的「其他」標籤頁）
-tab1, tab2, tab3, tab4 = st.tabs(["📋 當前總庫存", "📥 物品進貨", "📦 物品出庫", "⚙️ 其他"])
+# 主頁籤選單
+tab1, tab2, tab3, tab4 = st.tabs(["📋 當前總庫存", "📥 物品進貨", "📦 物品出庫", "🧪 即時生產計數 (計瓶器)"])
 
-# --- 1. 當前總庫存與歷史紀錄 ---
+# --- 頁籤 1: 當前總庫存與分門別類的歷史日誌 ---
 with tab1:
     st.subheader("📋 當前倉庫總庫存盤點表")
     if st.button("🔄 刷新最新資料"):
@@ -92,7 +120,7 @@ with tab1:
         with col_search:
             search_term = st.text_input("🔍 快捷搜尋物品名稱：", placeholder="例如：洗髮精...")
         with col_filter:
-            zone_filter = st.text_input("🗺️ 按存放地點/關鍵字過濾：", placeholder="例如：A區...")
+            zone_filter = st.text_input("🗺️ 按存放地點/關鍵字過濾：", placeholder="例如：A區 或 客廳...")
 
         filtered_df = df_inventory.copy()
         if search_term.strip():
@@ -101,30 +129,71 @@ with tab1:
             filtered_df = filtered_df[filtered_df["儲位"].str.contains(zone_filter.strip(), case=False, na=False)]
 
         st.dataframe(filtered_df, use_container_width=True)
-        st.metric(label="📊 目前篩選貨物總件數", value=f"{filtered_df['庫存數量'].sum()} 件")
+        st.metric(label="📊 目前篩選貨物總瓶/件數", value=f"{filtered_df['庫存數量'].sum()} 件")
 
     st.write("---")
-    st.subheader("📜 歷史進出貨時間日誌")
+    st.subheader("📜 歷史進出貨與生產時間日誌")
     try:
         ws_log = get_worksheet("歷史紀錄")
         log_data = ws_log.get_all_values()
         if len(log_data) > 1:
             df_log = pd.DataFrame(log_data[1:], columns=log_data[0])
-            st.dataframe(df_log.iloc[::-1], use_container_width=True, height=220)
+            
+            # 日期過濾與關鍵字過濾輸入列
+            col_date, col_keyword = st.columns([1, 2])
+            with col_date:
+                selected_date = st.date_input("📅 選擇日誌日期", value=datetime.now(TW_TZ))
+            with col_keyword:
+                log_search = st.text_input("🔍 關鍵字過濾 (物品名稱)", placeholder="例如：洗髮精...")
+
+            target_date_str = selected_date.strftime("%Y-%m-%d")
+            
+            # 先進行日期過濾
+            df_filtered_base = df_log[df_log["時間"].str.startswith(target_date_str, na=False)]
+            if log_search.strip():
+                df_filtered_base = df_filtered_base[df_filtered_base["物品名稱"].str.contains(log_search.strip(), case=False, na=False)]
+
+            # 分類展示頁籤
+            log_tab_in, log_tab_prod, log_tab_out, log_tab_all = st.tabs([
+                "📥 進貨紀錄", "🧪 生產紀錄", "📦 出貨紀錄", "🌐 全部異動"
+            ])
+
+            def render_log_table(data_frame, category_label):
+                if data_frame.empty:
+                    st.caption(f"🗓️ {target_date_str} 無【{category_label}】紀錄。")
+                else:
+                    st.caption(f"顯示日期：**{target_date_str}**（{category_label} 共 {len(data_frame)} 筆）")
+                    st.dataframe(data_frame.iloc[::-1], use_container_width=True, height=220)
+
+            with log_tab_in:
+                df_in = df_filtered_base[df_filtered_base["類型"] == "📥 物品進貨"]
+                render_log_table(df_in, "物品進貨")
+
+            with log_tab_prod:
+                df_prod = df_filtered_base[df_filtered_base["類型"] == "🧪 生產完工"]
+                render_log_table(df_prod, "生產完工")
+
+            with log_tab_out:
+                df_out = df_filtered_base[df_filtered_base["類型"] == "📦 物品出庫"]
+                render_log_table(df_out, "物品出貨")
+
+            with log_tab_all:
+                render_log_table(df_filtered_base, "全部異動")
+
         else:
-            st.caption("尚無歷史進出貨紀錄。")
+            st.caption("尚無歷史異動紀錄。")
     except Exception as e:
         st.caption("載入歷史紀錄失敗。")
 
-# --- 2. 物品進貨 ---
+# --- 頁籤 2: 物品進貨 ---
 with tab2:
     st.subheader("📥 物品進貨登記")
     with st.form("inbound_form", clear_on_submit=True):
         inbound_item = st.text_input("物品/產品名稱", placeholder="例如：洗髮精 A")
         inbound_qty = st.number_input("進貨數量", min_value=1, value=1, step=1)
-        inbound_location = st.text_input("存放地點 / 儲位", placeholder="例如：A區-01架...")
+        inbound_location = st.text_input("存放地點 / 儲位", placeholder="例如：A區-01架、主臥抽屜...")
         
-        submit_inbound = st.form_submit_button("確認進貨入庫", type="primary")
+        submit_inbound = st.form_submit_button("確認進貨入庫", type="primary", use_container_width=True)
         
         if submit_inbound:
             if not inbound_item.strip():
@@ -147,10 +216,10 @@ with tab2:
                 save_all_data(df)
                 log_history("📥 物品進貨", item_name, f"+{inbound_qty}", final_qty, location_str)
                 
-                st.success(f"🎉 進貨成功！【{item_name}】新增 {inbound_qty} 件，目前總庫存為 {final_qty} 件！")
+                st.success(f"🎉 進貨成功！【{item_name}】新增 {inbound_qty} 件，存放地點：{location_str}，目前總庫存為 {final_qty} 件！")
                 st.rerun()
 
-# --- 3. 物品出庫 ---
+# --- 頁籤 3: 物品出庫 ---
 with tab3:
     st.subheader("📦 物品出庫登記")
     df = get_current_data()
@@ -168,7 +237,7 @@ with tab3:
         remaining_preview = current_stock - remove_qty
         st.info(f"💡 出貨後此物品剩餘庫存將自動更新為：**{remaining_preview}** 件")
         
-        if st.button("確認出貨", type="primary"):
+        if st.button("確認出貨", type="primary", use_container_width=True):
             df.loc[selected_idx, "庫存數量"] -= remove_qty
             remaining_qty = int(df.loc[selected_idx, "庫存數量"])
             
@@ -178,35 +247,65 @@ with tab3:
             save_all_data(df)
             log_history("📦 物品出庫", current_item['物品名稱'], f"-{remove_qty}", remaining_qty, current_item['儲位'])
             
-            st.success(f"✅ 出貨成功！順利扣除【{current_item['物品名稱']}】{remove_qty} 件，當前庫存為 {remaining_qty} 件。")
+            st.success(f"✅ 出貨成功！順利扣除【{current_item['物品名稱']}】{remove_qty} 件，當前庫存已自動減少為 {remaining_qty} 件。")
             st.rerun()
 
-# --- 4. 其他 (包含本機字體大小調整) ---
+# --- 頁籤 4: 即時生產計數 (計瓶器) ---
 with tab4:
-    st.subheader("⚙️ 其他設定與系統偏好")
+    st.subheader("🧪 產品製作與計瓶器")
+    
+    if st.session_state.last_completed_item:
+        st.info(f"⏮️ **上次完成紀錄**：【{st.session_state.last_completed_item}】共製作了 **{st.session_state.last_completed_count}** 瓶")
+    
+    if st.session_state.batch_count > 0 or st.session_state.batch_item:
+        st.success(f"📌 **當前生產中產品**：【{st.session_state.batch_item}】｜ 當前累計：**{st.session_state.batch_count}** 瓶")
+    else:
+        st.caption("⚠️ 目前尚未開始任何產品的計數。")
+
     st.write("---")
-    st.markdown("### 🔤 本機顯示字體大小")
-    st.caption("⚠️ **提示**：這裡的設定**只會改變這台手機/裝置**的顯示字體，其他裝置與後台資料不會受到任何影響。")
     
-    # 字體大小滑桿
-    new_font_size = st.slider(
-        "請選擇適合您的字體大小 (px)：",
-        min_value=14,
-        max_value=32,
-        value=st.session_state.font_size,
-        step=1
-    )
+    item_input = st.text_input("產品名稱", value=st.session_state.batch_item, placeholder="例如：洗髮精 A")
+    add_qty = st.number_input("本次製作數量 (瓶)", min_value=1, value=1, step=1)
+
+    btn_col1, btn_col2 = st.columns(2)
     
-    if st.button("💾 套用字體設定到這台手機", type="primary"):
-        st.session_state.font_size = new_font_size
-        save_font_script = f"""
-        <script>
-            localStorage.setItem('user_font_size', '{new_font_size}');
-            if (window.parent.document.body) {{
-                window.parent.document.body.style.fontSize = '{new_font_size}px';
-            }}
-        </script>
-        """
-        components.html(save_font_script, height=0)
-        st.success(f"✅ 已成功將這台裝置的字體大小調整為 {new_font_size}px！")
-        st.rerun()
+    with btn_col1:
+        if st.button("➕ 疊加數量", use_container_width=True):
+            if not item_input.strip():
+                st.error("❌ 請輸入產品名稱！")
+            else:
+                st.session_state.batch_item = item_input.strip()
+                st.session_state.batch_count += add_qty
+                st.toast(f"已累加 {add_qty} 瓶！目前共 {st.session_state.batch_count} 瓶", icon="🧪")
+                st.rerun()
+
+    with btn_col2:
+        if st.button("✅ 完成此產品", type="primary", use_container_width=True):
+            if st.session_state.batch_count == 0:
+                st.error("❌ 當前累計瓶數為 0，無法結算！請先點擊「疊加數量」。")
+            else:
+                df = get_current_data()
+                item_name = st.session_state.batch_item
+                added_qty = st.session_state.batch_count
+                default_loc = "未指定儲位"
+                
+                mask = (df["物品名稱"] == item_name)
+                if mask.any():
+                    df.loc[mask, "庫存數量"] += added_qty
+                    final_qty = int(df.loc[mask, "庫存數量"].values[0])
+                else:
+                    new_row = pd.DataFrame([{"物品名稱": item_name, "庫存數量": added_qty, "儲位": default_loc}])
+                    df = pd.concat([df, new_row], ignore_index=True)
+                    final_qty = added_qty
+                
+                save_all_data(df)
+                log_history("🧪 生產完工", item_name, f"+{added_qty}", final_qty, default_loc)
+                
+                st.session_state.last_completed_item = item_name
+                st.session_state.last_completed_count = added_qty
+                
+                st.success(f"🎉 成功完成！【{item_name}】本次新增 {added_qty} 瓶，目前總庫存為 {final_qty} 瓶！")
+                
+                st.session_state.batch_item = ""
+                st.session_state.batch_count = 0
+                st.rerun()
