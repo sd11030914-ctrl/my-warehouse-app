@@ -154,7 +154,7 @@ with tab1:
             if log_search.strip():
                 df_filtered_base = df_filtered_base[df_filtered_base["物品名稱"].str.contains(log_search.strip(), case=False, na=False)]
 
-            # 獨立分頁展示不同類型的紀錄
+            # 核心修改：將進貨、生產、出貨日誌劃分為四個獨立分頁
             log_tab_in, log_tab_prod, log_tab_out, log_tab_all = st.tabs([
                 "📥 進貨紀錄", "🧪 生產紀錄", "📦 出貨紀錄", "🌐 全部異動"
             ])
@@ -166,18 +166,22 @@ with tab1:
                     st.caption(f"顯示日期：**{target_date_str}**（{category_label} 共 {len(data_frame)} 筆）")
                     st.dataframe(data_frame.iloc[::-1], use_container_width=True, height=220)
 
+            # 1. 僅顯示進貨紀錄
             with log_tab_in:
                 df_in = df_filtered_base[df_filtered_base["類型"] == "📥 物品進貨"]
                 render_log_table(df_in, "物品進貨")
 
+            # 2. 僅顯示生產紀錄
             with log_tab_prod:
                 df_prod = df_filtered_base[df_filtered_base["類型"] == "🧪 生產完工"]
                 render_log_table(df_prod, "生產完工")
 
+            # 3. 僅顯示出貨紀錄
             with log_tab_out:
                 df_out = df_filtered_base[df_filtered_base["類型"] == "📦 物品出庫"]
                 render_log_table(df_out, "物品出貨")
 
+            # 4. 全部異動紀錄
             with log_tab_all:
                 render_log_table(df_filtered_base, "全部異動")
 
