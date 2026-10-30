@@ -49,13 +49,15 @@ def log_history(action_type, item_name, quantity, location):
     now_str = datetime.now(TW_TZ).strftime("%Y-%m-%d %H:%M:%S")
     ws_log.append_row([now_str, action_type, item_name, str(quantity), location])
 
-# 初始化 session state 計數器
+# 初始化 session state
 if 'batch_item' not in st.session_state:
     st.session_state.batch_item = ""
-if 'batch_location' not in st.session_state:
-    st.session_state.batch_location = ""
 if 'batch_count' not in st.session_state:
     st.session_state.batch_count = 0
+if 'last_completed_item' not in st.session_state:
+    st.session_state.last_completed_item = ""
+if 'last_completed_count' not in st.session_state:
+    st.session_state.last_completed_count = 0
 
 # 網頁UI設定
 st.set_page_config(page_title="雲端倉庫與生產計數系統", page_icon="📦", layout="wide")
@@ -106,67 +108,65 @@ with tab1:
 # --- 頁籤 2: 即時生產計數 ---
 with tab2:
     st.subheader("🧪 產品製作與計瓶器")
-    st.info("💡 說明：在製作同一款產品時，每次做好幾瓶就按一次「疊加數量」。等這批完全做完後，按下「完成本批次」就會一次性寫入雲端庫存！")
     
-    # 顯示目前正在記錄的產品狀態
+    # 顯示上次做多少的紀錄資訊
+    if st.session_state.last_completed_item:
+        st.info(f"⏮️ **上次完成紀錄**：【{st.session_state.last_completed_item}】共製作了 **{st.session_state.last_completed_count}** 瓶")
+    
+    # 顯示當前生產中狀態
     if st.session_state.batch_count > 0 or st.session_state.batch_item:
-        st.success(f"📌 **當前生產中產品**：【{st.session_state.batch_item}】｜ 位置：{st.session_state.batch_location} ｜ 累計完成瓶數：**{st.session_state.batch_count}** 瓶")
+        st.success(f"📌 **當前生產中產品**：【{st.session_state.batch_item}】｜ 當前累計：**{st.session_state.batch_count}** 瓶")
     else:
-        st.warning("⚠️ 目前尚未開始任何產品的計數。")
+        st.caption("⚠️ 目前尚未開始任何產品的計數。")
 
     st.write("---")
     
-    # 輸入表單
-    item_input = st.text_input("物品/產品名稱", value=st.session_state.batch_item, placeholder="例如：洗髮精 A")
-    
-    col_a, col_b = st.columns(2)
-    with col_a:
-        zone_input = st.selectbox("擺放區域", ["A 區", "B 區", "C 區", "D 區", "主臥", "客廳", "儲藏室"])
-    with col_b:
-        shelf_input = st.text_input("詳細位置/貨架", value="01")
-
-    location_str = f"{zone_input}-{shelf_input}"
-    add_qty = st.number_input("本次新增製作數量 (瓶)", min_value=1, value=1, step=1)
+    # 精簡輸入表單：只保留產品名稱與本次數量
+    item_input = st.text_input("產品名稱", value=st.session_state.batch_item, placeholder="例如：洗髮精 A")
+    add_qty = st.number_input("本次製作數量 (瓶)", min_value=1, value=1, step=1)
 
     btn_col1, btn_col2 = st.columns(2)
     
     # 疊加按鈕
     with btn_col1:
-        if st.button("➕ 疊加數量到當前產品", use_container_width=True):
+        if st.button("➕ 疊加數量", use_container_width=True):
             if not item_input.strip():
                 st.error("❌ 請輸入產品名稱！")
             else:
                 st.session_state.batch_item = item_input.strip()
-                st.session_state.batch_location = location_str
                 st.session_state.batch_count += add_qty
                 st.toast(f"已累加 {add_qty} 瓶！目前共 {st.session_state.batch_count} 瓶", icon="🧪")
                 st.rerun()
 
     # 完成按鈕
     with btn_col2:
-        if st.button("✅ 完成本批次並寫入庫存", type="primary", use_container_width=True):
+        if st.button("✅ 完成此產品", type="primary", use_container_width=True):
             if st.session_state.batch_count == 0:
-                st.error("❌ 當前累計瓶數為 0，無法結算！請先按下「疊加數量」。")
+                st.error("❌ 當前累計瓶數為 0，無法結算！請先點擊「疊加數量」。")
             else:
                 df = get_current_data()
                 item_name = st.session_state.batch_item
-                loc = st.session_state.batch_location
                 total_qty = st.session_state.batch_count
+                default_loc = "未指定儲位"
                 
-                mask = (df["物品名稱"] == item_name) & (df["儲位"] == loc)
+                mask = (df["物品名稱"] == item_name)
                 if mask.any():
                     df.loc[mask, "庫存數量"] += total_qty
                 else:
-                    new_row = pd.DataFrame([{"物品名稱": item_name, "庫存數量": total_qty, "儲位": loc}])
+                    new_row = pd.DataFrame([{"物品名稱": item_name, "庫存數量": total_qty, "儲位": default_loc}])
                     df = pd.concat([df, new_row], ignore_index=True)
                 
                 save_all_data(df)
-                log_history("🧪 生產完工", item_name, total_qty, loc)
+                log_history("🧪 生產完工", item_name, total_qty, default_loc)
                 
-                st.success(f"🎉 成功完成結算！【{item_name}】共 {total_qty} 瓶，已順利存入 {loc}！")
+                # 更新上一次製作紀錄
+                st.session_state.last_completed_item = item_name
+                st.session_state.last_completed_count = total_qty
                 
+                st.success(f"🎉 成功完成！【{item_name}】共 {total_qty} 瓶已存入庫存！")
+                
+                # 清空當前計數，準備進行下一個產品
                 st.session_state.batch_item = ""
-                st.session_state.batch_location = ""
                 st.session_state.batch_count = 0
                 st.rerun()
 
@@ -177,7 +177,7 @@ with tab3:
     if df.empty:
         st.warning("倉庫目前沒有貨物可以出庫。")
     else:
-        item_options = df.apply(lambda r: f"{r['物品名稱']} (位置: {r['儲位']}, 現有: {r['庫存數量']}件)", axis=1).tolist()
+        item_options = df.apply(lambda r: f"{r['物品名稱']} (現有: {r['庫存數量']}件)", axis=1).tolist()
         selected_option = st.selectbox("請選擇要出庫的物品：", item_options)
         selected_idx = item_options.index(selected_option)
         current_item = df.iloc[selected_idx]
