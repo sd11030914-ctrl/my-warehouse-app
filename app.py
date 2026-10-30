@@ -4,6 +4,7 @@ import gspread
 import json
 from datetime import datetime
 import pytz
+import streamlit.components.v1 as components
 
 # 設定台灣時區
 TW_TZ = pytz.timezone('Asia/Taipei')
@@ -62,10 +63,22 @@ if 'last_completed_count' not in st.session_state:
 # 原生網頁設定
 st.set_page_config(page_title="雲端倉庫與生產管理系統", page_icon="📦", layout="wide")
 
+# --- 核心：獨立裝置字體放大功能 (全域載入) ---
+# 每次畫面更新時，靜默讀取這台裝置的 localStorage 並套用根目錄字體大小
+load_font_js = """
+<script>
+    const savedSize = window.localStorage.getItem('device_font_size');
+    if (savedSize) {
+        window.parent.document.documentElement.style.fontSize = savedSize + 'px';
+    }
+</script>
+"""
+components.html(load_font_js, height=0, width=0)
+
 st.title("⚡ 雲端倉庫與生產管理系統")
 
-# 主功能頁籤分頁 (四個主功能完整歸位)
-tab1, tab2, tab3, tab4 = st.tabs(["📋 當前總庫存", "📥 物品進貨", "📦 物品出庫", "🧪 即時生產計數"])
+# 主功能頁籤分頁 (新增第五個分頁：其他)
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["📋 當前總庫存", "📥 物品進貨", "📦 物品出庫", "🧪 即時生產計數", "⚙️ 其他"])
 
 # --- 1. 當前總庫存與歷史紀錄 ---
 with tab1:
@@ -209,7 +222,7 @@ with tab3:
             st.success(f"✅ 出貨成功！順利扣除【{current_item['物品名稱']}】{remove_qty} 件，當前庫存為 {remaining_qty} 件。")
             st.rerun()
 
-# --- 4. 即時生產計數 (計瓶器功能加回) ---
+# --- 4. 即時生產計數 ---
 with tab4:
     st.subheader("🧪 產品製作與計瓶器")
     
@@ -268,3 +281,23 @@ with tab4:
                 st.session_state.batch_item = ""
                 st.session_state.batch_count = 0
                 st.rerun()
+
+# --- 5. 其他 (獨立字體設定) ---
+with tab5:
+    st.subheader("⚙️ 獨立裝置設定 (僅限本機)")
+    st.info("💡 這裡的字體大小調整只會記憶在「您現在使用的這台手機或電腦」上，其他人的畫面與系統資料完全不受影響。")
+    
+    # 預設基準字體大小約為 16px
+    selected_font_size = st.slider("調整畫面字體與版面倍率：", min_value=12, max_value=32, value=16, step=1)
+    
+    if st.button("💾 套用並記憶字體大小", type="primary"):
+        save_font_js = f"""
+        <script>
+            // 變更根目錄字體大小，達成全版面等比例縮放
+            window.parent.document.documentElement.style.fontSize = '{selected_font_size}px';
+            // 將設定存入這台手機的記憶體中
+            window.localStorage.setItem('device_font_size', '{selected_font_size}');
+        </script>
+        """
+        components.html(save_font_js, height=0, width=0)
+        st.success(f"✅ 成功！這台裝置的基準字體已設定為 {selected_font_size}px。")
