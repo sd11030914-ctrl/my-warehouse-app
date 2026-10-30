@@ -63,7 +63,7 @@ if 'last_completed_count' not in st.session_state:
 st.set_page_config(page_title="雲端倉庫與生產計數系統", page_icon="📦", layout="wide")
 st.title("📦 雲端倉庫與生產計數系統")
 
-# 使用橫向頁籤（包含新增的「📥 物品進貨」頁籤）
+# 使用橫向頁籤
 tab1, tab2, tab3, tab4 = st.tabs(["📋 當前總庫存", "🧪 即時生產計數 (計瓶器)", "📥 物品進貨", "📦 物品出庫"])
 
 # --- 頁籤 1: 當前總庫存與歷史紀錄 ---
@@ -81,13 +81,13 @@ with tab1:
         with col_search:
             search_term = st.text_input("🔍 快捷搜尋物品名稱：", placeholder="例如：洗髮精...")
         with col_filter:
-            zone_filter = st.selectbox("🗺️ 按區域過濾：", ["全部區域", "A 區", "B 區", "C 區", "D 區", "主臥", "客廳", "儲藏室"])
+            zone_filter = st.text_input("🗺️ 按存放地點/關鍵字過濾：", placeholder="例如：A區 或 客廳...")
 
         filtered_df = df_inventory.copy()
         if search_term.strip():
             filtered_df = filtered_df[filtered_df["物品名稱"].str.contains(search_term, case=False, na=False)]
-        if zone_filter != "全部區域":
-            filtered_df = filtered_df[filtered_df["儲位"].str.contains(zone_filter, na=False)]
+        if zone_filter.strip():
+            filtered_df = filtered_df[filtered_df["儲位"].str.contains(zone_filter.strip(), case=False, na=False)]
 
         st.dataframe(filtered_df, use_container_width=True)
         st.metric(label="目前篩選貨物總瓶/件數", value=f"{filtered_df['庫存數量'].sum()} 件")
@@ -171,14 +171,8 @@ with tab3:
     with st.form("inbound_form", clear_on_submit=True):
         inbound_item = st.text_input("物品/產品名稱", placeholder="例如：洗髮精 A")
         inbound_qty = st.number_input("進貨數量", min_value=1, value=1, step=1)
-        
-        col_zone, col_shelf = st.columns(2)
-        with col_zone:
-            inbound_zone = st.selectbox("存放區域", ["A 區", "B 區", "C 區", "D 區", "主臥", "客廳", "儲藏室", "未指定儲位"])
-        with col_shelf:
-            inbound_shelf = st.text_input("詳細位置/貨架", value="01")
-            
-        inbound_location = f"{inbound_zone}-{inbound_shelf}" if inbound_zone != "未指定儲位" else "未指定儲位"
+        # 改為手動輸入存放地點
+        inbound_location = st.text_input("存放地點 / 儲位", placeholder="例如：A區-01架、主臥抽屜、客廳櫃子...")
         
         submit_inbound = st.form_submit_button("確認進貨入庫", type="primary", use_container_width=True)
         
@@ -188,21 +182,22 @@ with tab3:
             else:
                 df = get_current_data()
                 item_name = inbound_item.strip()
+                location_str = inbound_location.strip() if inbound_location.strip() else "未指定儲位"
                 
                 mask = (df["物品名稱"] == item_name)
                 if mask.any():
                     df.loc[mask, "庫存數量"] += inbound_qty
-                    df.loc[mask, "儲位"] = inbound_location
+                    df.loc[mask, "儲位"] = location_str
                     final_qty = int(df.loc[mask, "庫存數量"].values[0])
                 else:
-                    new_row = pd.DataFrame([{"物品名稱": item_name, "庫存數量": inbound_qty, "儲位": inbound_location}])
+                    new_row = pd.DataFrame([{"物品名稱": item_name, "庫存數量": inbound_qty, "儲位": location_str}])
                     df = pd.concat([df, new_row], ignore_index=True)
                     final_qty = inbound_qty
                 
                 save_all_data(df)
-                log_history("📥 物品進貨", item_name, f"+{inbound_qty}", final_qty, inbound_location)
+                log_history("📥 物品進貨", item_name, f"+{inbound_qty}", final_qty, location_str)
                 
-                st.success(f"🎉 進貨成功！【{item_name}】新增 {inbound_qty} 件，存放地點：{inbound_location}，目前總庫存為 {final_qty} 件！")
+                st.success(f"🎉 進貨成功！【{item_name}】新增 {inbound_qty} 件，存放地點：{location_str}，目前總庫存為 {final_qty} 件！")
                 st.rerun()
 
 # --- 頁籤 4: 物品出庫 ---
