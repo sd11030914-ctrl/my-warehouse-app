@@ -59,64 +59,11 @@ if 'last_completed_item' not in st.session_state:
 if 'last_completed_count' not in st.session_state:
     st.session_state.last_completed_count = 0
 
-# 網頁UI設定：使用充滿活力的配色 Theme 與全寬版面
-st.set_page_config(page_title="雲端倉庫管理系統", page_icon="📦", layout="wide")
+# 網頁UI設定
+st.set_page_config(page_title="雲端倉庫與生產計數系統", page_icon="📦", layout="wide")
+st.title("📦 雲端倉庫與生產計數系統")
 
-# 自訂 CSS 動態活潑視覺風格 (亮彩主題、卡片圓角、陰影與漸層色彩)
-st.markdown("""
-<style>
-    /* 全域背景色彩 - 明亮活潑的漸層背景 */
-    .main {
-        background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
-    }
-    /* 標題區域樣式 */
-    h1 {
-        color: #1E3A8A;
-        font-family: 'Trebuchet MS', sans-serif;
-        text-shadow: 1px 1px 2px rgba(0,0,0,0.1);
-    }
-    /* 自訂 Tab 標籤頁主題 */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 12px;
-    }
-    .stTabs [data-baseweb="tab"] {
-        height: 50px;
-        white-space: pre-wrap;
-        background-color: #ffffff;
-        border-radius: 10px 10px 0px 0px;
-        color: #4B5563;
-        font-weight: bold;
-        box-shadow: 0px -2px 5px rgba(0,0,0,0.05);
-        padding: 10px 20px;
-    }
-    .stTabs [aria-selected="true"] {
-        background: linear-gradient(135deg, #3B82F6 0%, #2563EB 100%) !important;
-        color: #ffffff !important;
-    }
-    /* 資訊卡片樣式 */
-    .stMetric {
-        background-color: #ffffff;
-        padding: 15px;
-        border-radius: 12px;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-        border-left: 5px solid #3B82F6;
-    }
-    /* 提示框與按鈕優化 */
-    .stButton>button {
-        border-radius: 8px;
-        font-weight: bold;
-        transition: all 0.3s ease;
-    }
-    .stButton>button:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-    }
-</style>
-""", unsafe_allow_html=True)
-
-st.title("⚡ 雲端倉庫與生產管理系統")
-
-# 頁籤順序：置頂橫向分頁標籤，最後一個為即時生產計數
+# 重新調整頁籤順序：將「即時生產計數 (計瓶器)」放置在最後一個標籤
 tab1, tab2, tab3, tab4 = st.tabs(["📋 當前總庫存", "📥 物品進貨", "📦 物品出庫", "🧪 即時生產計數 (計瓶器)"])
 
 # --- 頁籤 1: 當前總庫存與歷史紀錄 ---
@@ -128,7 +75,7 @@ with tab1:
 
     df_inventory = get_current_data()
     if df_inventory.empty:
-        st.info("💡 目前倉庫內沒有任何貨物。")
+        st.info("目前倉庫內沒有任何貨物。")
     else:
         col_search, col_filter = st.columns([2, 1])
         with col_search:
@@ -143,7 +90,7 @@ with tab1:
             filtered_df = filtered_df[filtered_df["儲位"].str.contains(zone_filter.strip(), case=False, na=False)]
 
         st.dataframe(filtered_df, use_container_width=True)
-        st.metric(label="📊 目前篩選貨物總瓶/件數", value=f"{filtered_df['庫存數量'].sum()} 件")
+        st.metric(label="目前篩選貨物總瓶/件數", value=f"{filtered_df['庫存數量'].sum()} 件")
 
     st.write("---")
     st.subheader("📜 歷史進出貨與生產時間日誌")
@@ -153,13 +100,16 @@ with tab1:
         if len(log_data) > 1:
             df_log = pd.DataFrame(log_data[1:], columns=log_data[0])
             
+            # 預設只顯示今天紀錄，並提供日期選擇與關鍵字搜尋
             selected_date = st.date_input("📅 選擇日誌日期", value=datetime.now(TW_TZ))
             log_search = st.text_input("🔍 關鍵字搜尋日誌 (物品名稱/類型)", placeholder="例如：進貨、出貨、洗髮精...")
 
             target_date_str = selected_date.strftime("%Y-%m-%d")
             
+            # 日期過濾
             df_filtered_log = df_log[df_log["時間"].str.startswith(target_date_str, na=False)]
             
+            # 關鍵字過濾
             if log_search.strip():
                 mask_item = df_filtered_log["物品名稱"].str.contains(log_search.strip(), case=False, na=False)
                 mask_type = df_filtered_log["類型"].str.contains(log_search.strip(), case=False, na=False)
