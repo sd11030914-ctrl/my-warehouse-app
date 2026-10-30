@@ -63,21 +63,34 @@ if 'last_completed_count' not in st.session_state:
 # 原生網頁設定
 st.set_page_config(page_title="雲端倉庫與生產管理系統", page_icon="📦", layout="wide")
 
-# --- 核心：獨立裝置字體放大功能 (全域載入) ---
-# 每次畫面更新時，靜默讀取這台裝置的 localStorage 並套用根目錄字體大小
-load_font_js = """
+# --- 核心：獨立裝置字體放大功能 + 疊加數量按鈕藍色化 ---
+custom_js = """
 <script>
+    // 1. 讀取並套用這台裝置的獨立字體大小
     const savedSize = window.localStorage.getItem('device_font_size');
     if (savedSize) {
         window.parent.document.documentElement.style.fontSize = savedSize + 'px';
     }
+
+    // 2. 監聽網頁變化，精準將「疊加數量」按鈕改成藍色
+    const observer = new MutationObserver(() => {
+        const btns = window.parent.document.querySelectorAll('button');
+        btns.forEach(btn => {
+            if (btn.innerText && btn.innerText.includes('疊加數量')) {
+                btn.style.backgroundColor = '#007BFF';
+                btn.style.color = 'white';
+                btn.style.borderColor = '#007BFF';
+            }
+        });
+    });
+    observer.observe(window.parent.document.body, {childList: true, subtree: true});
 </script>
 """
-components.html(load_font_js, height=0, width=0)
+components.html(custom_js, height=0, width=0)
 
 st.title("⚡ 雲端倉庫與生產管理系統")
 
-# 主功能頁籤分頁 (新增第五個分頁：其他)
+# 主功能頁籤分頁
 tab1, tab2, tab3, tab4, tab5 = st.tabs(["📋 當前總庫存", "📥 物品進貨", "📦 物品出庫", "🧪 即時生產計數", "⚙️ 其他"])
 
 # --- 1. 當前總庫存與歷史紀錄 ---
@@ -242,6 +255,7 @@ with tab4:
     btn_col1, btn_col2 = st.columns(2)
     
     with btn_col1:
+        # 此按鈕的底色會被上方的 custom_js 自動渲染成藍色
         if st.button("➕ 疊加數量"):
             if not item_input.strip():
                 st.error("❌ 請輸入產品名稱！")
@@ -287,15 +301,12 @@ with tab5:
     st.subheader("⚙️ 獨立裝置設定 (僅限本機)")
     st.info("💡 這裡的字體大小調整只會記憶在「您現在使用的這台手機或電腦」上，其他人的畫面與系統資料完全不受影響。")
     
-    # 預設基準字體大小約為 16px
     selected_font_size = st.slider("調整畫面字體與版面倍率：", min_value=12, max_value=32, value=16, step=1)
     
     if st.button("💾 套用並記憶字體大小", type="primary"):
         save_font_js = f"""
         <script>
-            // 變更根目錄字體大小，達成全版面等比例縮放
             window.parent.document.documentElement.style.fontSize = '{selected_font_size}px';
-            // 將設定存入這台手機的記憶體中
             window.localStorage.setItem('device_font_size', '{selected_font_size}');
         </script>
         """
