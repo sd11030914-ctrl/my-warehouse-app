@@ -63,7 +63,7 @@ if 'last_completed_count' not in st.session_state:
 st.set_page_config(page_title="雲端倉庫與生產計數系統", page_icon="📦", layout="wide")
 st.title("📦 雲端倉庫與生產計數系統")
 
-# 重新調整頁籤順序：「即時生產計數 (計瓶器)」移動至最後一個
+# 重新調整頁籤順序：將「即時生產計數 (計瓶器)」放置在最後一個標籤
 tab1, tab2, tab3, tab4 = st.tabs(["📋 當前總庫存", "📥 物品進貨", "📦 物品出庫", "🧪 即時生產計數 (計瓶器)"])
 
 # --- 頁籤 1: 當前總庫存與歷史紀錄 ---
@@ -190,7 +190,7 @@ with tab3:
             st.success(f"✅ 出貨成功！順利扣除【{current_item['物品名稱']}】{remove_qty} 件，當前庫存已自動減少為 {remaining_qty} 件。")
             st.rerun()
 
-# --- 頁籤 4: 即時生產計數 (移至最後一個頁籤) ---
+# --- 頁籤 4: 即時生產計數 (計瓶器移至最後) ---
 with tab4:
     st.subheader("🧪 產品製作與計瓶器")
     
