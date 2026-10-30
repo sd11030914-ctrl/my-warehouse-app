@@ -113,32 +113,3 @@ with tab2:
         st.info(f"⏮️ **上次完成紀錄**：【{st.session_state.last_completed_item}】共製作了 **{st.session_state.last_completed_count}** 瓶")
     
     if st.session_state.batch_count > 0 or st.session_state.batch_item:
-        st.success(f"📌 **當前生產中產品**：【{st.session_state.batch_item}】｜ 當前累計：**{st.session_state.batch_count}** 瓶")
-    else:
-        st.caption("⚠️ 目前尚未開始任何產品的計數。")
-
-    st.write("---")
-    
-    item_input = st.text_input("產品名稱", value=st.session_state.batch_item, placeholder="例如：洗髮精 A")
-    add_qty = st.number_input("本次製作數量 (瓶)", min_value=1, value=1, step=1)
-
-    btn_col1, btn_col2 = st.columns(2)
-    
-    with btn_col1:
-        if st.button("➕ 疊加數量", use_container_width=True):
-            if not item_input.strip():
-                st.error("❌ 請輸入產品名稱！")
-            else:
-                st.session_state.batch_item = item_input.strip()
-                st.session_state.batch_count += add_qty
-                st.toast(f"已累加 {add_qty} 瓶！目前共 {st.session_state.batch_count} 瓶", icon="🧪")
-                st.rerun()
-
-    with btn_col2:
-        if st.button("✅ 完成此產品", type="primary", use_container_width=True):
-            if st.session_state.batch_count == 0:
-                st.error("❌ 當前累計瓶數為 0，無法結算！請先點擊「疊加數量」。")
-            else:
-                df = get_current_data()
-                item_name = st.session_state.batch_item
-                added_qty =
