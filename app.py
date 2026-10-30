@@ -1,170 +1,201 @@
 import streamlit as st
 import pandas as pd
 import gspread
-from google.oauth2.service_account import Credentials
 import json
+from datetime import datetime
+import pytz
 
-st.set_page_config(page_title="雲端倉庫管理系統", page_icon="📦", layout="wide")
-st.title("📦 雲端倉庫管理系統")
-st.markdown("---")
+# 設定台灣時區
+TW_TZ = pytz.timezone('Asia/Taipei')
 
-SPREADSHEET_ID = "1QovEQSMk_KLmN9otXIGE2JJRY0J0HAPlGSQRfrcOABQ"
+# 1. Google 試算表驗證與連接
+SPREADSHEET_ID = "1QovEQSMk_KLmN9otXIGE2JJRY0J0HAPlGSQRfrcOABQ"[cite: 1]
 
-def get_sheets_client():
-    info = json.loads(st.secrets["google_json"])
-    scopes = [
-        "https://www.googleapis.com/auth/spreadsheets",
-        "https://www.googleapis.com/auth/drive"
-    ]
-    creds = Credentials.from_service_account_info(info, scopes=scopes)
-    return gspread.authorize(creds)
+@st.cache_resource
+def get_gspread_client():
+    secrets_dict = json.loads(st.secrets["google_json"])[cite: 1]
+    return gspread.service_account_from_dict(secrets_dict)
 
-def load_data():
+def get_worksheet(sheet_name="工作表1"):
+    gc = get_gspread_client()
+    sh = gc.open_by_key(SPREADSHEET_ID)
     try:
-        gc = get_sheets_client()
-        sh = gc.open_by_key(SPREADSHEET_ID)
-        worksheet = sh.sheet1
-        all_values = worksheet.get_all_values()
-        
-        if not all_values or len(all_values) < 1:
-            return pd.DataFrame(columns=["物品名稱", "庫存數量", "儲位"])
-        
-        headers = [str(h).strip() for h in all_values[0]]
-        
-        if len(all_values) == 1:
-            return pd.DataFrame(columns=["物品名稱", "庫存數量", "儲位"])
-            
-        df = pd.DataFrame(all_values[1:], columns=headers)
-        
-        if "物品名稱" in df.columns and "庫存數量" in df.columns and "儲位" in df.columns:
-            df = df[["物品名稱", "庫存數量", "儲位"]]
-            df["庫存數量"] = pd.to_numeric(df["庫存數量"], errors='coerce').fillna(0).astype(int)
-            return df
-        else:
-            df.columns = ["物品名稱", "庫存數量", "儲位"] + list(df.columns[3:])
-            df = df[["物品名稱", "庫存數量", "儲位"]]
-            df["庫存數量"] = pd.to_numeric(df["庫存數量"], errors='coerce').fillna(0).astype(int)
-            return df
-    except Exception as e:
-        st.error(f"連線異常: {e}")
-        return pd.DataFrame(columns=["物品名稱", "庫存數量", "儲位"])
+        return sh.worksheet(sheet_name)
+    except:
+        if sheet_name == "歷史紀錄":
+            ws = sh.add_worksheet(title="歷史紀錄", rows="100", cols="5")
+            ws.append_row(["時間", "類型", "物品名稱", "數量", "位置/儲位"])
+            return ws
+        return sh.sheet1
 
-def update_cloud_data(df):
-    try:
-        gc = get_sheets_client()
-        sh = gc.open_by_key(SPREADSHEET_ID)
-        worksheet = sh.sheet1
-        worksheet.clear()
-        
-        clean_df = df.copy()
-        clean_df["庫存數量"] = clean_df["庫存數量"].astype(int)
-        
-        headers = ["物品名稱", "庫存數量", "儲位"]
-        rows = clean_df[["物品名稱", "庫存數量", "儲位"]].values.tolist()
-        
-        worksheet.update(range_name="A1", values=[headers] + rows)
-        st.toast("雲端資料已同步", icon="✅")
-    except Exception as e:
-        st.error(f"同步失敗: {e}")
+def get_current_data():
+    ws = get_worksheet("工作表1")
+    data = ws.get_all_values()
+    if len(data) <= 1:
+        return pd.DataFrame(columns=["物品名稱", "庫存數量", "儲位"])[cite: 1]
+    df = pd.DataFrame(data[1:], columns=["物品名稱", "庫存數量", "儲位"])[cite: 1]
+    df["庫存數量"] = pd.to_numeric(df["庫存數量"], errors='coerce').fillna(0).astype(int)[cite: 1]
+    return df
 
-df_inventory = load_data()
+def save_all_data(df):
+    ws = get_worksheet("工作表1")
+    ws.clear()
+    ws.append_row(["物品名稱", "庫存數量", "儲位"])[cite: 1]
+    if not df.empty:
+        ws.append_rows(df.astype(str).values.tolist())
 
-tab1, tab2, tab3 = st.tabs(["📋 當前庫存盤點", "📥 物品快捷進貨", "📦 物品快捷出庫"])
+def log_history(action_type, item_name, quantity, location):
+    ws_log = get_worksheet("歷史紀錄")
+    now_str = datetime.now(TW_TZ).strftime("%Y-%m-%d %H:%M:%S")[cite: 1]
+    ws_log.append_row([now_str, action_type, item_name, str(quantity), location])
 
-# === 📋 標籤頁 1：當前庫存盤點 (加入智慧搜尋功能) ===
+# 初始化 session state 計數器
+if 'batch_item' not in st.session_state:
+    st.session_state.batch_item = ""
+if 'batch_location' not in st.session_state:
+    st.session_state.batch_location = ""
+if 'batch_count' not in st.session_state:
+    st.session_state.batch_count = 0
+
+# 網頁UI設定
+st.set_page_config(page_title="雲端倉庫與生產計數系統", page_icon="📦", layout="wide")[cite: 1]
+st.title("📦 雲端倉庫與生產計數系統")[cite: 1]
+
+# 使用橫向頁籤
+tab1, tab2, tab3 = st.tabs(["📋 當前總庫存", "🧪 即時生產計數 (計瓶器)", "📦 物品出庫"])[cite: 1]
+
+# --- 頁籤 1: 當前總庫存與歷史紀錄 ---
 with tab1:
-    st.subheader("📋 倉庫即時庫存表")
-    
-    # 💡 人性化亮點：置頂一排快捷搜尋工具欄
-    search_col1, search_col2, search_col3 = st.columns([2, 1, 1])
-    
-    with search_col1:
-        # 關鍵字輸入框
-        search_query = st.text_input("🔍 快捷搜尋物品名稱", placeholder="輸入名稱關鍵字（例如：洗髮精）")
-        
-    with search_col2:
-        # 區域過濾下拉選單
-        filter_zone = st.selectbox("🗺️ 按區域過濾", ["全部區域", "A 區", "B 區", "C 區", "D 區"])
-        
-    with search_col3:
-        # 刷新按鈕
-        st.write("<div style='height: 28px;'></div>", unsafe_allow_html=True) # 調整對齊的空白
-        if st.button("🔄 刷新數據", use_container_width=True):
-            st.rerun()
-            
-    # 開始進行資料過濾過篩
-    df_filtered = df_inventory.copy()
-    
-    # 1. 處理關鍵字搜尋
-    if search_query.strip():
-        df_filtered = df_filtered[df_filtered["物品名稱"].str.contains(search_query, case=False, na=False)]
-        
-    # 2. 處理區域過濾
-    if filter_zone != "全部區域":
-        df_filtered = df_filtered[df_filtered["儲位"].str.contains(filter_zone, na=False)]
+    st.subheader("📋 當前倉庫總庫存盤點表")[cite: 1]
+    if st.button("🔄 刷新最新資料"):[cite: 1]
+        st.cache_data.clear()
+        st.rerun()
 
-    # 顯示過濾後的結果
-    if df_filtered.empty:
-        st.info("💡 沒有找到符合搜尋條件的貨物。")
-    else:
-        st.dataframe(df_filtered, width='stretch')
-        
-        # 統計卡片改為顯示「搜尋出來的項目總數」
-        total_items = df_filtered["庫存數量"].sum()
-        unique_items = len(df_filtered)
-        
-        stat_col1, stat_col2 = st.columns(2)
-        with stat_col1:
-            st.metric(label="目前顯示的貨物總數量", value=f"{total_items} 件")
-        with stat_col2:
-            st.metric(label="目前顯示的品項種類", value=f"{unique_items} 種")
-
-# === 📥 標籤頁 2：物品快捷進貨 ===
-with tab2:
-    st.subheader("📥 貨物入庫登記")
-    with st.form("in_form", clear_on_submit=True):
-        item_name = st.text_input("物品名稱", placeholder="輸入物品名稱")
-        quantity = st.number_input("進貨數量", min_value=1, value=1, step=1)
-        st.write("---")
-        st.write("📍 指定儲位")
-        col1, col2, col3 = st.columns(3)
-        with col1: zone = st.selectbox("區域", ["A 區", "B 區", "C 區", "D 區"])
-        with col2: shelf = st.text_input("貨架", value="01", max_chars=2)
-        with col3: level = st.selectbox("層級", ["1層", "2層", "3層", "4層"])
-        submit_btn = st.form_submit_button("🔥 確認快速入庫", use_container_width=True)
-        
-        if submit_btn:
-            if not item_name.strip():
-                st.error("❌ 請輸入物品名稱")
-            else:
-                location = f"{zone}-{shelf}-{level}"
-                mask = (df_inventory["物品名稱"] == item_name) & (df_inventory["儲位"] == location)
-                if mask.any():
-                    df_inventory.loc[mask, "庫存數量"] += quantity
-                else:
-                    new_row = pd.DataFrame([{"物品名稱": item_name, "庫存數量": quantity, "儲位": location}])
-                    df_inventory = pd.concat([df_inventory, new_row], ignore_index=True)
-                update_cloud_data(df_inventory)
-                st.success(f"✅ 成功入庫")
-                st.rerun()
-
-# === 📦 標籤頁 3：物品快捷出庫 ===
-with tab3:
-    st.subheader("📦 貨物出庫登記")
+    df_inventory = get_current_data()
     if df_inventory.empty:
-        st.warning("倉庫目前無貨可出。")
+        st.info("目前倉庫內沒有任何貨物。")[cite: 1]
     else:
-        item_options = df_inventory.apply(lambda r: f"{r['物品名稱']} ({r['儲位']})", axis=1).tolist()
-        selected_option = st.selectbox("選擇出庫物品：", item_options)
-        selected_idx = item_options.index(selected_option)
-        current_item = df_inventory.iloc[selected_idx]
-        max_qty = int(current_item["庫存數量"])
-        remove_qty = st.number_input(f"出庫數量 (庫存剩餘 {max_qty})：", min_value=1, max_value=max_qty, value=1, step=1)
+        col_search, col_filter = st.columns([2, 1])[cite: 1]
+        with col_search:
+            search_term = st.text_input("🔍 快捷搜尋物品名稱：", placeholder="例如：洗髮精...")[cite: 1]
+        with col_filter:
+            zone_filter = st.selectbox("🗺️ 按區域過濾：", ["全部區域", "A 區", "B 區", "C 區", "D 區", "主臥", "客廳", "儲藏室"])[cite: 1]
+
+        filtered_df = df_inventory.copy()
+        if search_term.strip():
+            filtered_df = filtered_df[filtered_df["物品名稱"].str.contains(search_term, case=False, na=False)][cite: 1]
+        if zone_filter != "全部區域":
+            filtered_df = filtered_df[filtered_df["儲位"].str.contains(zone_filter, na=False)][cite: 1]
+
+        st.dataframe(filtered_df, use_container_width=True)[cite: 1]
+        st.metric(label="目前篩選貨物總瓶/件數", value=f"{filtered_df['庫存數量'].sum()} 件")[cite: 1]
+
+    st.write("---")[cite: 1]
+    st.subheader("📜 歷史進出貨與生產時間日誌")[cite: 1]
+    try:
+        ws_log = get_worksheet("歷史紀錄")
+        log_data = ws_log.get_all_values()
+        if len(log_data) > 1:
+            df_log = pd.DataFrame(log_data[1:], columns=log_data[0])[cite: 1]
+            st.dataframe(df_log.iloc[::-1], use_container_width=True, height=250)[cite: 1]
+        else:
+            st.caption("尚無歷史異動紀錄。")[cite: 1]
+    except:
+        st.caption("載入歷史紀錄失敗。")[cite: 1]
+
+# --- 頁籤 2: 即時生產計數 (核心新功能) ---
+with tab2:
+    st.subheader("🧪 產品製作與計瓶器")[cite: 1]
+    st.info("💡 說明：在製作同一款產品時，每次做好幾瓶就按一次「疊加數量」。等這批完全做完後，按下「完成本批次」就會一次性寫入雲端庫存！")[cite: 1]
+    
+    # 顯示目前正在記錄的產品狀態
+    if st.session_state.batch_count > 0 or st.session_state.batch_item:
+        st.success(f"📌 **當前生產中產品**：【{st.session_state.batch_item}】｜ 位置：{st.session_state.batch_location} ｜ 累計完成瓶數：**{st.session_state.batch_count}** 瓶")[cite: 1]
+    else:
+        st.warning("⚠️ 目前尚未開始任何產品的計數。")[cite: 1]
+
+    st.write("---")[cite: 1]
+    
+    # 輸入表單
+    item_input = st.text_input("物品/產品名稱", value=st.session_state.batch_item, placeholder="例如：洗髮精 A")[cite: 1]
+    
+    col_a, col_b = st.columns(2)[cite: 1]
+    with col_a:
+        zone_input = st.selectbox("擺放區域", ["A 區", "B 區", "C 區", "D 區", "主臥", "客廳", "儲藏室"])[cite: 1]
+    with col_b:
+        shelf_input = st.text_input("詳細位置/貨架", value="01")[cite: 1]
+
+    location_str = f"{zone_input}-{shelf_input}"[cite: 1]
+    add_qty = st.number_input("本次新增製作數量 (瓶)", min_value=1, value=1, step=1)[cite: 1]
+
+    btn_col1, btn_col2 = st.columns(2)[cite: 1]
+    
+    # 疊加按鈕
+    with btn_col1:
+        if st.button("➕ 疊加數量到當前產品", use_container_width=True):[cite: 1]
+            if not item_input.strip():
+                st.error("❌ 請輸入產品名稱！")[cite: 1]
+            else:
+                # 鎖定產品名稱與地點
+                st.session_state.batch_item = item_input.strip()[cite: 1]
+                st.session_state.batch_location = location_str[cite: 1]
+                st.session_state.batch_count += add_qty[cite: 1]
+                st.toast(f"已累加 {add_qty} 瓶！目前共 {st.session_state.batch_count} 瓶", icon="🧪")[cite: 1]
+                st.rerun()[cite: 1]
+
+    # 完成按鈕
+    with btn_col2:
+        if st.button("✅ 完成本批次並寫入庫存", type="primary", use_container_width=True):[cite: 1]
+            if st.session_state.batch_count == 0:
+                st.error("❌ 當前累計瓶數為 0，無法結算！請先按下「疊加數量」。")[cite: 1]
+            else:
+                df = get_current_data()
+                item_name = st.session_state.batch_item[cite: 1]
+                loc = st.session_state.batch_location[cite: 1]
+                total_qty = st.session_state.batch_count[cite: 1]
+                
+                # 檢查試算表是否已有相同品項與儲位
+                mask = (df["物品名稱"] == item_name) & (df["儲位"] == loc)[cite: 1]
+                if mask.any():
+                    df.loc[mask, "庫存數量"] += total_qty[cite: 1]
+                else:
+                    new_row = pd.DataFrame([{"物品名稱": item_name, "庫存數量": total_qty, "儲位": loc}])[cite: 1]
+                    df = pd.concat([df, new_row], ignore_index=True)[cite: 1]
+                
+                # 儲存至雲端
+                save_all_data(df)[cite: 1]
+                log_history("🧪 生產完工", item_name, total_qty, loc)[cite: 1]
+                
+                st.success(f"🎉 成功完成結算！【{item_name}】共 {total_qty} 瓶，已順利存入 {loc}！")[cite: 1]
+                
+                # 清空暫存，準備下一個產品
+                st.session_state.batch_item = ""[cite: 1]
+                st.session_state.batch_location = ""[cite: 1]
+                st.session_state.batch_count = 0[cite: 1]
+                st.rerun()[cite: 1]
+
+# --- 頁籤 3: 物品出庫 ---
+with tab3:
+    st.subheader("📦 物品出庫登記")[cite: 1]
+    df = get_current_data()
+    if df.empty:
+        st.warning("倉庫目前沒有貨物可以出庫。")[cite: 1]
+    else:
+        item_options = df.apply(lambda r: f"{r['物品名稱']} (位置: {r['儲位']}, 現有: {r['庫存數量']}件)", axis=1).tolist()[cite: 1]
+        selected_option = st.selectbox("請選擇要出庫的物品：", item_options)[cite: 1]
+        selected_idx = item_options.index(selected_option)[cite: 1]
+        current_item = df.iloc[selected_idx][cite: 1]
         
-        if st.button("🔥 確認快速出庫", use_container_width=True):
-            df_inventory.loc[selected_idx, "庫存數量"] -= remove_qty
-            if df_inventory.loc[selected_idx, "庫存數量"] == 0:
-                df_inventory = df_inventory.drop(selected_idx).reset_index(drop=True)
-            update_cloud_data(df_inventory)
-            st.success(f"✅ 已完成出庫")
-            st.rerun()
+        max_qty = int(current_item["庫存數量"])[cite: 1]
+        remove_qty = st.number_input(f"出庫數量 (目前最多可出 {max_qty} 件)：", min_value=1, max_value=max_qty, value=1, step=1)[cite: 1]
+        
+        if st.button("確認出庫", type="primary"):[cite: 1]
+            df.loc[selected_idx, "庫存數量"] -= remove_qty[cite: 1]
+            if df.loc[selected_idx, "庫存數量"] == 0:
+                df = df.drop(selected_idx).reset_index(drop=True)[cite: 1]
+            
+            save_all_data(df)[cite: 1]
+            log_history("📦 物品出庫", current_item['物品名稱'], -remove_qty, current_item['儲位'])[cite: 1]
+            
+            st.success(f"✅ 出庫成功！順利扣除【{current_item['物品名稱']}】共 {remove_qty} 件。")[cite: 1]
+            st.rerun()[cite: 1]
