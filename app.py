@@ -8,7 +8,7 @@ import pytz
 # 設定台灣時區
 TW_TZ = pytz.timezone('Asia/Taipei')
 
-# Google 試算表設定
+# Google 試算表設定 (倉庫資料庫)
 SPREADSHEET_ID = "1QovEQSMk_KLmN9otXIGE2JJRY0J0HAPlGSQRfrcOABQ"
 
 @st.cache_resource
@@ -49,13 +49,23 @@ def log_history(action_type, item_name, change_qty, total_qty, location):
     now_str = datetime.now(TW_TZ).strftime("%Y-%m-%d %H:%M:%S")
     ws_log.append_row([now_str, action_type, item_name, str(change_qty), str(total_qty), location])
 
+# 初始化 Session State (計瓶器所需)
+if 'batch_item' not in st.session_state:
+    st.session_state.batch_item = ""
+if 'batch_count' not in st.session_state:
+    st.session_state.batch_count = 0
+if 'last_completed_item' not in st.session_state:
+    st.session_state.last_completed_item = ""
+if 'last_completed_count' not in st.session_state:
+    st.session_state.last_completed_count = 0
+
 # 原生網頁設定
-st.set_page_config(page_title="雲端倉庫管理系統", page_icon="📦", layout="wide")
+st.set_page_config(page_title="雲端倉庫與生產管理系統", page_icon="📦", layout="wide")
 
-st.title("📦 雲端倉庫管理系統")
+st.title("⚡ 雲端倉庫與生產管理系統")
 
-# 主功能頁籤分頁（無任何自訂 CSS UI 樣式）
-tab1, tab2, tab3 = st.tabs(["📋 當前總庫存", "📥 物品進貨", "📦 物品出庫"])
+# 主功能頁籤分頁 (四個主功能完整歸位)
+tab1, tab2, tab3, tab4 = st.tabs(["📋 當前總庫存", "📥 物品進貨", "📦 物品出庫", "🧪 即時生產計數"])
 
 # --- 1. 當前總庫存與歷史紀錄 ---
 with tab1:
@@ -81,10 +91,10 @@ with tab1:
             filtered_df = filtered_df[filtered_df["儲位"].str.contains(zone_filter.strip(), case=False, na=False)]
 
         st.dataframe(filtered_df, use_container_width=True)
-        st.metric(label="📊 目前篩選貨物總件數", value=f"{filtered_df['庫存數量'].sum()} 件")
+        st.metric(label="📊 目前篩選貨物總瓶/件數", value=f"{filtered_df['庫存數量'].sum()} 件")
 
     st.write("---")
-    st.subheader("📜 歷史進出貨時間日誌")
+    st.subheader("📜 歷史進出貨與生產時間日誌")
     try:
         ws_log = get_worksheet("歷史紀錄")
         log_data = ws_log.get_all_values()
@@ -198,3 +208,63 @@ with tab3:
             
             st.success(f"✅ 出貨成功！順利扣除【{current_item['物品名稱']}】{remove_qty} 件，當前庫存為 {remaining_qty} 件。")
             st.rerun()
+
+# --- 4. 即時生產計數 (計瓶器功能加回) ---
+with tab4:
+    st.subheader("🧪 產品製作與計瓶器")
+    
+    if st.session_state.last_completed_item:
+        st.info(f"⏮️ **上次完成紀錄**：【{st.session_state.last_completed_item}】共製作了 **{st.session_state.last_completed_count}** 瓶")
+    
+    if st.session_state.batch_count > 0 or st.session_state.batch_item:
+        st.success(f"📌 **當前生產中產品**：【{st.session_state.batch_item}】｜ 當前累計：**{st.session_state.batch_count}** 瓶")
+    else:
+        st.caption("⚠️ 目前尚未開始任何產品的計數。")
+
+    st.write("---")
+    
+    item_input = st.text_input("產品名稱", value=st.session_state.batch_item, placeholder="例如：洗髮精 A")
+    add_qty = st.number_input("本次製作數量 (瓶)", min_value=1, value=1, step=1)
+
+    btn_col1, btn_col2 = st.columns(2)
+    
+    with btn_col1:
+        if st.button("➕ 疊加數量"):
+            if not item_input.strip():
+                st.error("❌ 請輸入產品名稱！")
+            else:
+                st.session_state.batch_item = item_input.strip()
+                st.session_state.batch_count += add_qty
+                st.toast(f"已累加 {add_qty} 瓶！目前共 {st.session_state.batch_count} 瓶", icon="🧪")
+                st.rerun()
+
+    with btn_col2:
+        if st.button("✅ 完成此產品", type="primary"):
+            if st.session_state.batch_count == 0:
+                st.error("❌ 當前累計瓶數為 0，無法結算！請先點擊「疊加數量」。")
+            else:
+                df = get_current_data()
+                item_name = st.session_state.batch_item
+                added_qty = st.session_state.batch_count
+                default_loc = "未指定儲位"
+                
+                mask = (df["物品名稱"] == item_name)
+                if mask.any():
+                    df.loc[mask, "庫存數量"] += added_qty
+                    final_qty = int(df.loc[mask, "庫存數量"].values[0])
+                else:
+                    new_row = pd.DataFrame([{"物品名稱": item_name, "庫存數量": added_qty, "儲位": default_loc}])
+                    df = pd.concat([df, new_row], ignore_index=True)
+                    final_qty = added_qty
+                
+                save_all_data(df)
+                log_history("🧪 生產完工", item_name, f"+{added_qty}", final_qty, default_loc)
+                
+                st.session_state.last_completed_item = item_name
+                st.session_state.last_completed_count = added_qty
+                
+                st.success(f"🎉 成功完成！【{item_name}】本次新增 {added_qty} 瓶，目前總庫存為 {final_qty} 瓶！")
+                
+                st.session_state.batch_item = ""
+                st.session_state.batch_count = 0
+                st.rerun()
