@@ -93,12 +93,17 @@ st.markdown("""
         box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
         border-left: 5px solid #3B82F6;
     }
+    /* 隱藏 DataFrame 預設白底與外邊框 */
+    div[data-testid="stDataFrame"] {
+        background-color: transparent !important;
+        border: none !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
 st.title("⚡ 雲端倉庫與生產管理系統")
 
-# 主頁籤選單
+# 主頁籤選單：即時生產計數 (計瓶器) 排在最後一個
 tab1, tab2, tab3, tab4 = st.tabs(["📋 當前總庫存", "📥 物品進貨", "📦 物品出庫", "🧪 即時生產計數 (計瓶器)"])
 
 # --- 頁籤 1: 當前總庫存與分門別類的歷史日誌 ---
@@ -144,12 +149,12 @@ with tab1:
 
             target_date_str = selected_date.strftime("%Y-%m-%d")
             
-            # 先進行日期與關鍵字過濾
+            # 先進行日期過濾
             df_filtered_base = df_log[df_log["時間"].str.startswith(target_date_str, na=False)]
             if log_search.strip():
                 df_filtered_base = df_filtered_base[df_filtered_base["物品名稱"].str.contains(log_search.strip(), case=False, na=False)]
 
-            # 核心亮點：分類展示頁籤（進貨 / 生產 / 出貨 / 全部）
+            # 獨立分頁展示不同類型的紀錄
             log_tab_in, log_tab_prod, log_tab_out, log_tab_all = st.tabs([
                 "📥 進貨紀錄", "🧪 生產紀錄", "📦 出貨紀錄", "🌐 全部異動"
             ])
@@ -246,7 +251,7 @@ with tab3:
             st.success(f"✅ 出貨成功！順利扣除【{current_item['物品名稱']}】{remove_qty} 件，當前庫存已自動減少為 {remaining_qty} 件。")
             st.rerun()
 
-# --- 頁籤 4: 即時生產計數 ---
+# --- 頁籤 4: 即時生產計數 (計瓶器) ---
 with tab4:
     st.subheader("🧪 產品製作與計瓶器")
     
