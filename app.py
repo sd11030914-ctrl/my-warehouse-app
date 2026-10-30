@@ -23,8 +23,8 @@ def get_worksheet(sheet_name="工作表1"):
         return sh.worksheet(sheet_name)
     except:
         if sheet_name == "歷史紀錄":
-            ws = sh.add_worksheet(title="歷史紀錄", rows="100", cols="5")
-            ws.append_row(["時間", "類型", "物品名稱", "數量", "位置/儲位"])
+            ws = sh.add_worksheet(title="歷史紀錄", rows="100", cols="6")
+            ws.append_row(["時間", "類型", "物品名稱", "變動數量", "結算總數", "位置/儲位"])
             return ws
         return sh.sheet1
 
@@ -44,10 +44,10 @@ def save_all_data(df):
     if not df.empty:
         ws.append_rows(df.astype(str).values.tolist())
 
-def log_history(action_type, item_name, quantity, location):
+def log_history(action_type, item_name, change_qty, total_qty, location):
     ws_log = get_worksheet("歷史紀錄")
     now_str = datetime.now(TW_TZ).strftime("%Y-%m-%d %H:%M:%S")
-    ws_log.append_row([now_str, action_type, item_name, str(quantity), location])
+    ws_log.append_row([now_str, action_type, item_name, str(change_qty), str(total_qty), location])
 
 # 初始化 session state
 if 'batch_item' not in st.session_state:
@@ -146,24 +146,27 @@ with tab2:
             else:
                 df = get_current_data()
                 item_name = st.session_state.batch_item
-                total_qty = st.session_state.batch_count
+                added_qty = st.session_state.batch_count
                 default_loc = "未指定儲位"
                 
                 mask = (df["物品名稱"] == item_name)
                 if mask.any():
-                    df.loc[mask, "庫存數量"] += total_qty
+                    df.loc[mask, "庫存數量"] += added_qty
+                    final_qty = int(df.loc[mask, "庫存數量"].values[0])
                 else:
-                    new_row = pd.DataFrame([{"物品名稱": item_name, "庫存數量": total_qty, "儲位": default_loc}])
+                    new_row = pd.DataFrame([{"物品名稱": item_name, "庫存數量": added_qty, "儲位": default_loc}])
                     df = pd.concat([df, new_row], ignore_index=True)
+                    final_qty = added_qty
                 
                 save_all_data(df)
-                log_history("🧪 生產完工", item_name, total_qty, default_loc)
+                # 獨立分開記錄：本次製作數量 (+added_qty) 與結算後的總庫存 (final_qty)
+                log_history("🧪 生產完工", item_name, f"+{added_qty}", final_qty, default_loc)
                 
                 # 更新上一次製作紀錄
                 st.session_state.last_completed_item = item_name
-                st.session_state.last_completed_count = total_qty
+                st.session_state.last_completed_count = added_qty
                 
-                st.success(f"🎉 成功完成！【{item_name}】共 {total_qty} 瓶已存入庫存！")
+                st.success(f"🎉 成功完成！【{item_name}】本次新增 {added_qty} 瓶，目前總庫存為 {final_qty} 瓶！")
                 
                 # 清空當前計數，準備進行下一個產品
                 st.session_state.batch_item = ""
@@ -187,11 +190,14 @@ with tab3:
         
         if st.button("確認出庫", type="primary"):
             df.loc[selected_idx, "庫存數量"] -= remove_qty
+            remaining_qty = int(df.loc[selected_idx, "庫存數量"])
+            
             if df.loc[selected_idx, "庫存數量"] == 0:
                 df = df.drop(selected_idx).reset_index(drop=True)
             
             save_all_data(df)
-            log_history("📦 物品出庫", current_item['物品名稱'], -remove_qty, current_item['儲位'])
+            # 獨立分開記錄：本次出貨數量 (-remove_qty) 與出貨後剩餘總庫存 (remaining_qty)
+            log_history("📦 物品出庫", current_item['物品名稱'], f"-{remove_qty}", remaining_qty, current_item['儲位'])
             
             st.success(f"✅ 出庫成功！順利扣除【{current_item['物品名稱']}】共 {remove_qty} 件。")
             st.rerun()
