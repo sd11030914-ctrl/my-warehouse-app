@@ -67,11 +67,13 @@ st.set_page_config(page_title="雲端倉庫與生產管理系統", page_icon="�
 # --- 核心：獨立裝置字體放大功能 + 疊加數量按鈕藍色化 ---
 custom_js = """
 <script>
+    // 記憶字體設定
     const savedSize = window.localStorage.getItem('device_font_size');
     if (savedSize) {
         window.parent.document.documentElement.style.fontSize = savedSize + 'px';
     }
 
+    // 監聽並將「疊加數量」按鈕改為藍色
     const observer = new MutationObserver(() => {
         const btns = window.parent.document.querySelectorAll('button');
         btns.forEach(btn => {
@@ -128,6 +130,7 @@ with tab1:
             
             col_date, col_keyword = st.columns([1, 2])
             with col_date:
+                # 預設顯示今天
                 selected_date = st.date_input("📅 選擇日誌日期", value=datetime.now(TW_TZ))
             with col_keyword:
                 log_search = st.text_input("🔍 關鍵字過濾 (物品名稱)", placeholder="例如：洗髮精...")
@@ -234,7 +237,6 @@ with tab3:
             save_all_data(df)
             log_history("📦 物品出庫", current_item['物品名稱'], f"-{remove_qty}", remaining_qty, current_item['儲位'])
             
-            # 新增的出貨提示訊息與動畫
             st.balloons()
             st.success("✅ **已經確定出貨！**")
             st.info(f"詳細資訊：順利扣除【{current_item['物品名稱']}】{remove_qty} 件，當前剩餘庫存為 {remaining_qty} 件。")
@@ -295,7 +297,6 @@ with tab4:
                 st.session_state.last_completed_item = item_name
                 st.session_state.last_completed_count = added_qty
                 
-                # 生產完工同樣也可以加上提示
                 st.balloons()
                 st.success("✅ **已經確定完工！**")
                 st.info(f"詳細資訊：【{item_name}】本次新增 {added_qty} 瓶，目前總庫存為 {final_qty} 瓶！")
