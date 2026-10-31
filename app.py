@@ -67,13 +67,11 @@ st.set_page_config(page_title="雲端倉庫與生產管理系統", page_icon="�
 # --- 核心：獨立裝置字體放大功能 + 疊加數量按鈕藍色化 ---
 custom_js = """
 <script>
-    // 記憶字體設定
     const savedSize = window.localStorage.getItem('device_font_size');
     if (savedSize) {
         window.parent.document.documentElement.style.fontSize = savedSize + 'px';
     }
 
-    // 監聽並將「疊加數量」按鈕改為藍色
     const observer = new MutationObserver(() => {
         const btns = window.parent.document.querySelectorAll('button');
         btns.forEach(btn => {
@@ -94,7 +92,7 @@ st.title("⚡ 雲端倉庫與生產管理系統")
 # 主功能頁籤分頁
 tab1, tab2, tab3, tab4, tab5 = st.tabs(["📋 當前總庫存", "📥 物品進貨", "📦 物品出庫", "🧪 即時生產計數", "⚙️ 其他"])
 
-# --- 1. 當前總庫存與歷史紀錄 ---
+# --- 1. 當前總庫存 ---
 with tab1:
     st.subheader("📋 當前倉庫總庫存盤點表")
     if st.button("🔄 刷新最新資料"):
@@ -119,58 +117,6 @@ with tab1:
 
         st.dataframe(filtered_df, use_container_width=True)
         st.metric(label="📊 目前篩選貨物總瓶/件數", value=f"{filtered_df['庫存數量'].sum()} 件")
-
-    st.write("---")
-    st.subheader("📜 歷史進出貨與生產時間日誌")
-    try:
-        ws_log = get_worksheet("歷史紀錄")
-        log_data = ws_log.get_all_values()
-        if len(log_data) > 1:
-            df_log = pd.DataFrame(log_data[1:], columns=log_data[0])
-            
-            col_date, col_keyword = st.columns([1, 2])
-            with col_date:
-                # 預設顯示今天
-                selected_date = st.date_input("📅 選擇日誌日期", value=datetime.now(TW_TZ))
-            with col_keyword:
-                log_search = st.text_input("🔍 關鍵字過濾 (物品名稱)", placeholder="例如：洗髮精...")
-
-            target_date_str = selected_date.strftime("%Y-%m-%d")
-            
-            df_filtered_base = df_log[df_log["時間"].str.startswith(target_date_str, na=False)]
-            if log_search.strip():
-                df_filtered_base = df_filtered_base[df_filtered_base["物品名稱"].str.contains(log_search.strip(), case=False, na=False)]
-
-            log_tab_in, log_tab_prod, log_tab_out, log_tab_all = st.tabs([
-                "📥 進貨紀錄", "🧪 生產紀錄", "📦 出貨紀錄", "🌐 全部異動"
-            ])
-
-            def render_log_table(data_frame, category_label):
-                if data_frame.empty:
-                    st.caption(f"🗓️ {target_date_str} 無【{category_label}】紀錄。")
-                else:
-                    st.caption(f"顯示日期：**{target_date_str}**（{category_label} 共 {len(data_frame)} 筆）")
-                    st.dataframe(data_frame.iloc[::-1], use_container_width=True, height=220)
-
-            with log_tab_in:
-                df_in = df_filtered_base[df_filtered_base["類型"] == "📥 物品進貨"]
-                render_log_table(df_in, "物品進貨")
-
-            with log_tab_prod:
-                df_prod = df_filtered_base[df_filtered_base["類型"] == "🧪 生產完工"]
-                render_log_table(df_prod, "生產完工")
-
-            with log_tab_out:
-                df_out = df_filtered_base[df_filtered_base["類型"] == "📦 物品出庫"]
-                render_log_table(df_out, "物品出貨")
-
-            with log_tab_all:
-                render_log_table(df_filtered_base, "全部異動")
-
-        else:
-            st.caption("尚無歷史異動紀錄。")
-    except Exception as e:
-        st.caption("載入歷史紀錄失敗。")
 
 # --- 2. 物品進貨 ---
 with tab2:
@@ -306,19 +252,90 @@ with tab4:
                 time.sleep(2)
                 st.rerun()
 
-# --- 5. 其他 (獨立字體設定) ---
+# --- 5. 其他 (內含：歷史紀錄 與 獨立字體設定) ---
 with tab5:
-    st.subheader("⚙️ 獨立裝置設定 (僅限本機)")
-    st.info("💡 這裡的字體大小調整只會記憶在「您現在使用的這台手機或電腦」上，其他人的畫面與系統資料完全不受影響。")
+    st.subheader("⚙️ 其他設定與歷史紀錄")
     
-    selected_font_size = st.slider("調整畫面字體與版面倍率：", min_value=12, max_value=32, value=16, step=1)
+    sub_tab1, sub_tab2 = st.tabs(["📜 歷史紀錄", "🔤 本機字體大小設定"])
     
-    if st.button("💾 套用並記憶字體大小", type="primary"):
-        save_font_js = f"""
-        <script>
-            window.parent.document.documentElement.style.fontSize = '{selected_font_size}px';
-            window.localStorage.setItem('device_font_size', '{selected_font_size}');
-        </script>
-        """
-        components.html(save_font_js, height=0, width=0)
-        st.success(f"✅ 成功！這台裝置的基準字體已設定為 {selected_font_size}px。")
+    # 子分頁 1：歷史紀錄
+    with sub_tab1:
+        st.subheader("📜 歷史進出貨與生產時間日誌")
+        try:
+            ws_log = get_worksheet("歷史紀錄")
+            log_data = ws_log.get_all_values()
+            if len(log_data) > 1:
+                df_log = pd.DataFrame(log_data[1:], columns=log_data[0])
+                
+                search_mode = st.radio("請選擇查詢模式：", ["📅 依日期篩選", "🔍 全局關鍵字搜尋 (無視日期)"], horizontal=True, key="history_search_mode")
+                
+                if search_mode == "📅 依日期篩選":
+                    col_date, col_keyword = st.columns([1, 2])
+                    with col_date:
+                        selected_date = st.date_input("📅 選擇日誌日期", value=datetime.now(TW_TZ), key="history_date_input")
+                    with col_keyword:
+                        log_search = st.text_input("🔍 關鍵字過濾 (在選定日期內)", placeholder="例如：洗髮精...", key="history_date_keyword")
+
+                    target_date_str = selected_date.strftime("%Y-%m-%d")
+                    df_filtered_base = df_log[df_log["時間"].str.startswith(target_date_str, na=False)]
+                    
+                    if log_search.strip():
+                        df_filtered_base = df_filtered_base[df_filtered_base["物品名稱"].str.contains(log_search.strip(), case=False, na=False)]
+                    
+                    date_label_text = target_date_str
+
+                else:
+                    log_search = st.text_input("🔍 搜尋所有歷史紀錄 (輸入物品名稱)", placeholder="例如：洗髮精...", key="history_global_keyword")
+                    if log_search.strip():
+                        df_filtered_base = df_log[df_log["物品名稱"].str.contains(log_search.strip(), case=False, na=False)]
+                    else:
+                        df_filtered_base = df_log
+                    date_label_text = "所有日期"
+
+                log_tab_in, log_tab_prod, log_tab_out, log_tab_all = st.tabs([
+                    "📥 進貨紀錄", "🧪 生產紀錄", "📦 出貨紀錄", "🌐 全部異動"
+                ])
+
+                def render_log_table(data_frame, category_label):
+                    if data_frame.empty:
+                        st.caption(f"🗓️ {date_label_text} 無【{category_label}】紀錄。")
+                    else:
+                        st.caption(f"顯示範圍：**{date_label_text}**（{category_label} 共 {len(data_frame)} 筆）")
+                        st.dataframe(data_frame.iloc[::-1], use_container_width=True, height=220)
+
+                with log_tab_in:
+                    df_in = df_filtered_base[df_filtered_base["類型"] == "📥 物品進貨"]
+                    render_log_table(df_in, "物品進貨")
+
+                with log_tab_prod:
+                    df_prod = df_filtered_base[df_filtered_base["類型"] == "🧪 生產完工"]
+                    render_log_table(df_prod, "生產完工")
+
+                with log_tab_out:
+                    df_out = df_filtered_base[df_filtered_base["類型"] == "📦 物品出庫"]
+                    render_log_table(df_out, "物品出貨")
+
+                with log_tab_all:
+                    render_log_table(df_filtered_base, "全部異動")
+
+            else:
+                st.caption("尚無歷史異動紀錄。")
+        except Exception as e:
+            st.caption("載入歷史紀錄失敗。")
+
+    # 子分頁 2：字體大小設定
+    with sub_tab2:
+        st.markdown("### 🔤 本機顯示字體大小")
+        st.info("💡 這裡的字體大小調整只會記憶在「您現在使用的這台手機或電腦」上，其他人的畫面與系統資料完全不受影響。")
+        
+        selected_font_size = st.slider("調整畫面字體與版面倍率：", min_value=12, max_value=32, value=16, step=1, key="font_slider")
+        
+        if st.button("💾 套用並記憶字體大小", type="primary"):
+            save_font_js = f"""
+            <script>
+                window.parent.document.documentElement.style.fontSize = '{selected_font_size}px';
+                window.localStorage.setItem('device_font_size', '{selected_font_size}');
+            </script>
+            """
+            components.html(save_font_js, height=0, width=0)
+            st.success(f"✅ 成功！這台裝置的基準字體已設定為 {selected_font_size}px。")
