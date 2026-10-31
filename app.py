@@ -5,6 +5,7 @@ import json
 from datetime import datetime
 import pytz
 import streamlit.components.v1 as components
+import time
 
 # 設定台灣時區
 TW_TZ = pytz.timezone('Asia/Taipei')
@@ -66,13 +67,11 @@ st.set_page_config(page_title="雲端倉庫與生產管理系統", page_icon="�
 # --- 核心：獨立裝置字體放大功能 + 疊加數量按鈕藍色化 ---
 custom_js = """
 <script>
-    // 1. 讀取並套用這台裝置的獨立字體大小
     const savedSize = window.localStorage.getItem('device_font_size');
     if (savedSize) {
         window.parent.document.documentElement.style.fontSize = savedSize + 'px';
     }
 
-    // 2. 監聽網頁變化，精準將「疊加數量」按鈕改成藍色
     const observer = new MutationObserver(() => {
         const btns = window.parent.document.querySelectorAll('button');
         btns.forEach(btn => {
@@ -201,7 +200,11 @@ with tab2:
                 save_all_data(df)
                 log_history("📥 物品進貨", item_name, f"+{inbound_qty}", final_qty, location_str)
                 
-                st.success(f"🎉 進貨成功！【{item_name}】新增 {inbound_qty} 件，目前總庫存為 {final_qty} 件！")
+                # 新增的提示訊息
+                st.balloons()
+                st.success("✅ **已經確定進貨！**")
+                st.info(f"詳細資訊：【{item_name}】新增 {inbound_qty} 件，目前總庫存為 {final_qty} 件。")
+                time.sleep(2) # 讓提示訊息停留兩秒
                 st.rerun()
 
 # --- 3. 物品出庫 ---
@@ -255,7 +258,6 @@ with tab4:
     btn_col1, btn_col2 = st.columns(2)
     
     with btn_col1:
-        # 此按鈕的底色會被上方的 custom_js 自動渲染成藍色
         if st.button("➕ 疊加數量"):
             if not item_input.strip():
                 st.error("❌ 請輸入產品名稱！")
