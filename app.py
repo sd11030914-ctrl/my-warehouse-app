@@ -200,11 +200,10 @@ with tab2:
                 save_all_data(df)
                 log_history("📥 物品進貨", item_name, f"+{inbound_qty}", final_qty, location_str)
                 
-                # 新增的提示訊息
                 st.balloons()
                 st.success("✅ **已經確定進貨！**")
                 st.info(f"詳細資訊：【{item_name}】新增 {inbound_qty} 件，目前總庫存為 {final_qty} 件。")
-                time.sleep(2) # 讓提示訊息停留兩秒
+                time.sleep(2) 
                 st.rerun()
 
 # --- 3. 物品出庫 ---
@@ -235,7 +234,11 @@ with tab3:
             save_all_data(df)
             log_history("📦 物品出庫", current_item['物品名稱'], f"-{remove_qty}", remaining_qty, current_item['儲位'])
             
-            st.success(f"✅ 出貨成功！順利扣除【{current_item['物品名稱']}】{remove_qty} 件，當前庫存為 {remaining_qty} 件。")
+            # 新增的出貨提示訊息與動畫
+            st.balloons()
+            st.success("✅ **已經確定出貨！**")
+            st.info(f"詳細資訊：順利扣除【{current_item['物品名稱']}】{remove_qty} 件，當前剩餘庫存為 {remaining_qty} 件。")
+            time.sleep(2)
             st.rerun()
 
 # --- 4. 即時生產計數 ---
@@ -292,10 +295,14 @@ with tab4:
                 st.session_state.last_completed_item = item_name
                 st.session_state.last_completed_count = added_qty
                 
-                st.success(f"🎉 成功完成！【{item_name}】本次新增 {added_qty} 瓶，目前總庫存為 {final_qty} 瓶！")
+                # 生產完工同樣也可以加上提示
+                st.balloons()
+                st.success("✅ **已經確定完工！**")
+                st.info(f"詳細資訊：【{item_name}】本次新增 {added_qty} 瓶，目前總庫存為 {final_qty} 瓶！")
                 
                 st.session_state.batch_item = ""
                 st.session_state.batch_count = 0
+                time.sleep(2)
                 st.rerun()
 
 # --- 5. 其他 (獨立字體設定) ---
